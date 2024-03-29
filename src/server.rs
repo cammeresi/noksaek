@@ -6,6 +6,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
+use handlebars::Handlebars;
 use regex::Regex;
 use rustls::{
     pki_types::{CertificateDer, PrivateKeyDer, PrivateSec1KeyDer},
@@ -22,6 +23,9 @@ use tokio_rustls::server::TlsStream;
 use tokio_rustls::{rustls, LazyConfigAcceptor};
 use tokio_utils::MultiRateLimiter;
 use url::Url;
+
+use crate::app::*;
+use linkerset::*;
 
 // https://github.com/rustls/tokio-rustls/blob/main/examples/server.rs
 // https://docs.rs/rustls/latest/rustls/index.html
@@ -57,6 +61,8 @@ struct NsCtx {
     ext_re: Regex,
     ip_limit: MultiRateLimiter<Ipv6Addr>,
     global_limit: MultiRateLimiter<()>,
+    apps: HashMap<String, Box<dyn Application + Send + Sync>>,
+    tmpl: Handlebars<'static>,
 }
 
 impl Debug for NsCtx {
@@ -67,7 +73,7 @@ impl Debug for NsCtx {
 
 impl NsCtx {
     fn new(port: u16) -> Self {
-        Self {
+        let mut s = Self {
             port,
             vhosts: HashMap::new(),
             tag_re: Regex::new(r"\[\[([^\[\]]+)\]\]").unwrap(),
@@ -80,6 +86,20 @@ impl NsCtx {
             global_limit: MultiRateLimiter::new(Duration::from_millis(
                 GLOBAL_RATE_LIMIT_MS,
             )),
+            apps: HashMap::new(),
+            tmpl: Handlebars::new(),
+        };
+        s.register_apps();
+        s
+    }
+
+    fn register_apps(&mut self) {
+        for app in set_iter!(apps) {
+            let (name, mut app) = app().expect("app creation failure");
+            app.init(&mut self.tmpl)
+                .expect(&format!("app \"{}\" init failed", name));
+            log::info!("registered app \"{}\"", name);
+            self.apps.insert(name, app);
         }
     }
 
@@ -226,7 +246,20 @@ impl NsCtx {
         }
     }
 
-    async fn test_file(&self, fs_path: &mut PathBuf, name: &str) -> bool {
+    async fn test_application(
+        &self, fs_path: &mut PathBuf, name: &str,
+    ) -> bool {
+        fs_path.push(format!("{}.app", name));
+        if let Ok(f) = fs::metadata(&fs_path).await {
+            if f.is_file() {
+                return true;
+            }
+        }
+        fs_path.pop();
+        false
+    }
+
+    async fn test_gmi_file(&self, fs_path: &mut PathBuf, name: &str) -> bool {
         fs_path.push(name);
         if let Ok(f) = fs::metadata(&fs_path).await {
             if f.is_file() {
@@ -277,16 +310,24 @@ impl NsCtx {
             i += 1;
         }
 
-        if i < path.len() && self.test_file(&mut fs_path, &path[i]).await {
-            i += 1;
-            return Ok((fs_path, &path[i..]));
+        if i < path.len() && self.test_application(&mut fs_path, &path[i]).await
+        {
+            // application
+            Ok((fs_path, &path[i + 1..]))
+        } else if i == path.len() - 1
+            && self.test_gmi_file(&mut fs_path, &path[i]).await
+        {
+            // file
+            Ok((fs_path, &[]))
         } else if i != path.len() {
-            return Err(Error::new(ErrorKind::NotFound, "not found"));
-        } else if self.test_file(&mut fs_path, DEFAULT_FILENAME).await {
-            return Ok((fs_path, &[]));
+            // further arguments are not allowed
+            Err(Error::new(ErrorKind::NotFound, "not found"))
+        } else if self.test_gmi_file(&mut fs_path, DEFAULT_FILENAME).await {
+            // default
+            Ok((fs_path, &[]))
+        } else {
+            Err(Error::new(ErrorKind::NotFound, "not found"))
         }
-
-        Err(Error::new(ErrorKind::NotFound, "not found"))
     }
 
     async fn handle_verbatim(
@@ -420,6 +461,22 @@ impl NsCtx {
         }
     }
 
+    async fn handle_app(
+        &self, _vhost: &VhostCtx, stream: &mut TlsStream<TcpStream>,
+        peer: &SocketAddr, path: &PathBuf, args: &[String],
+    ) -> io::Result<u64> {
+        let app = fs::read_to_string(&path).await?;
+        let app = app.trim();
+        log::info!("running app {} {:?}", app, args);
+        let Some(app) = self.apps.get(app) else {
+            return Err(Error::new(
+                ErrorKind::NotFound,
+                format!("unregistered app \"{}\"", app),
+            ));
+        };
+        app.run(args, stream, peer, &self.tmpl).await
+    }
+
     async fn handle_request(
         &self, vhost: &VhostCtx, stream: &mut TlsStream<TcpStream>,
         peer: &SocketAddr, request: &str,
@@ -432,14 +489,25 @@ impl NsCtx {
         let mime = mime_guess::from_path(&path)
             .first()
             .unwrap_or(mime::APPLICATION_OCTET_STREAM);
-        log::debug!("mime type: {}", mime);
+        let mut mime = mime.as_ref();
 
+        const GEMTEXT: &str = "text/gemini";
+        let mut app = false;
+        if let Some(ext) = path.extension() {
+            if ext.as_encoded_bytes() == "app".as_bytes() {
+                app = true;
+                mime = GEMTEXT;
+            }
+        }
+
+        log::debug!("mime type: {}", mime);
         stream
             .write_all(&format!("20 {}\r\n", mime).as_bytes())
             .await?;
 
-        const GEMTEXT: &str = "text/gemini";
-        let sent = if mime == GEMTEXT {
+        let sent = if app {
+            self.handle_app(vhost, stream, peer, &path, args).await?
+        } else if mime == GEMTEXT {
             self.handle_gmi(vhost, stream, &path).await?
         } else {
             self.handle_verbatim(stream, &path).await?
@@ -513,7 +581,7 @@ pub async fn main(
 ) -> io::Result<()> {
     pretty_env_logger::formatted_timed_builder()
         .default_format()
-        .filter_level(log::LevelFilter::Debug)
+        .filter_level(log::LevelFilter::Info)
         .format_indent(None)
         .format_timestamp_micros()
         .init();

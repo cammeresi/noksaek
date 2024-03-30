@@ -25,10 +25,8 @@ use tokio_utils::MultiRateLimiter;
 use url::Url;
 
 use crate::app::*;
+use crate::*;
 use linker_set::*;
-
-// https://github.com/rustls/tokio-rustls/blob/main/examples/server.rs
-// https://docs.rs/rustls/latest/rustls/index.html
 
 pub const DEFAULT_PORT: u16 = 1965;
 const DEFAULT_FILENAME: &str = "index.gmi";
@@ -213,24 +211,31 @@ impl NsCtx {
 
     fn parse_request(
         &self, vhost: &VhostCtx, request: &str,
-    ) -> io::Result<Vec<String>> {
+    ) -> Result<Vec<String>, NokError> {
         let Ok(url) = Url::parse(&request) else {
-            return Err(Error::new(ErrorKind::InvalidInput, "invalid url"));
+            return Err(
+                Error::new(ErrorKind::InvalidInput, "invalid url").into()
+            );
         };
         if url.scheme() != "gemini" {
-            return Err(Error::new(ErrorKind::InvalidInput, "url scheme"));
+            return Err(
+                Error::new(ErrorKind::InvalidInput, "url scheme").into()
+            );
         }
         if let Some(host) = url.host_str() {
             if host != &vhost.name {
                 return Err(Error::new(
                     ErrorKind::InvalidInput,
                     "wrong hostname",
-                ));
+                )
+                .into());
             }
         }
         let port = url.port().unwrap_or(DEFAULT_PORT);
         if port != self.port {
-            return Err(Error::new(ErrorKind::InvalidInput, "wrong port"));
+            return Err(
+                Error::new(ErrorKind::InvalidInput, "wrong port").into()
+            );
         }
         let segs = match url.path_segments() {
             None => Ok(Vec::new()),
@@ -240,7 +245,8 @@ impl NsCtx {
         };
         match segs {
             Err(_) => {
-                Err(Error::new(ErrorKind::InvalidInput, "decode failure"))
+                Err(Error::new(ErrorKind::InvalidInput, "decode failure")
+                    .into())
             }
             Ok(segs) => Ok(segs.iter().map(|x| x.to_string()).collect()),
         }
@@ -286,10 +292,12 @@ impl NsCtx {
     /// returns (file path, args)
     async fn resolve_request<'a>(
         &self, vhost: &VhostCtx, path: &'a [String],
-    ) -> io::Result<(PathBuf, &'a [String])> {
+    ) -> Result<(PathBuf, &'a [String]), NokError> {
         for p in path.iter() {
             if p.starts_with('.') {
-                return Err(Error::new(ErrorKind::InvalidInput, "hidden file"));
+                return Err(
+                    Error::new(ErrorKind::InvalidInput, "hidden file").into()
+                );
             }
         }
 
@@ -321,12 +329,12 @@ impl NsCtx {
             Ok((fs_path, &[]))
         } else if i != path.len() {
             // further arguments are not allowed
-            Err(Error::new(ErrorKind::NotFound, "not found"))
+            Err(Error::new(ErrorKind::NotFound, "not found").into())
         } else if self.test_gmi_file(&mut fs_path, DEFAULT_FILENAME).await {
             // default
             Ok((fs_path, &[]))
         } else {
-            Err(Error::new(ErrorKind::NotFound, "not found"))
+            Err(Error::new(ErrorKind::NotFound, "not found").into())
         }
     }
 
@@ -477,12 +485,11 @@ impl NsCtx {
         app.run(args, stream, peer, &self.tmpl).await
     }
 
+    /// returns (byte sent, mime type)
     async fn handle_request(
         &self, vhost: &VhostCtx, stream: &mut TlsStream<TcpStream>,
-        peer: &SocketAddr, request: &str,
-    ) -> io::Result<()> {
-        log::debug!("request: {:?}", request);
-        let path = self.parse_request(vhost, request)?;
+        peer: &SocketAddr, path: &[String],
+    ) -> Result<(u64, String), NokError> {
         let (path, args) = self.resolve_request(vhost, &path).await?;
         log::debug!("resolved: path {:?}, args {:?}", path, args);
 
@@ -513,53 +520,116 @@ impl NsCtx {
             self.handle_verbatim(stream, &path).await?
         };
 
-        log::info!("{} - {} - 20 - {} - {} bytes", peer, request, mime, sent);
-        Ok(())
+        Ok((sent, mime.into()))
+    }
+
+    fn flatten_result<T, E1, E2>(
+        res: Result<Result<T, E1>, E2>,
+    ) -> Result<T, NokError>
+    where
+        NokError: From<E1> + From<E2>,
+    {
+        match res {
+            Err(e) => Err(e.into()),
+            Ok(Err(e)) => Err(e.into()),
+            Ok(Ok(x)) => Ok(x),
+        }
     }
 
     async fn handle(
         &self, vhost: &VhostCtx, stream: &mut TlsStream<TcpStream>,
         peer: &SocketAddr,
-    ) -> io::Result<()> {
-        let request = timeout(TIMEOUT, self.read_request(stream)).await??;
-        timeout(TIMEOUT, self.handle_request(vhost, stream, peer, &request))
-            .await?
+    ) {
+        let (mut request, mut mime, mut sent, mut err) =
+            (None, None, None, None);
+        let res = timeout(TIMEOUT, self.read_request(stream)).await;
+        let res = Self::flatten_result(res);
+        if res.is_ok() {
+            request = Some(res.unwrap());
+            log::debug!("request: {:?}", request);
+            let res = self.parse_request(vhost, request.as_ref().unwrap());
+
+            if res.is_ok() {
+                let path = res.unwrap();
+                let res = timeout(
+                    TIMEOUT,
+                    self.handle_request(vhost, stream, peer, &path),
+                )
+                .await;
+                let res = Self::flatten_result(res);
+                if res.is_ok() {
+                    let (s, m) = res.unwrap();
+                    (sent, mime) = (Some(s), Some(m));
+                } else {
+                    err = Some(res.unwrap_err());
+                }
+            } else {
+                err = Some(res.unwrap_err());
+            }
+        } else {
+            err = Some(res.unwrap_err());
+        }
+
+        let msg = if let Some(e) = err {
+            if let Some(msg) = Self::error_message(&e) {
+                let _ = stream.write_all(msg.as_bytes()).await;
+                let _ = stream.write_all(b"\r\n").await;
+                msg
+            } else {
+                "".into()
+            }
+        } else {
+            "20".into()
+        };
+
+        if request.is_none() {
+            log::info!("{} - [no request] - {}", peer, msg);
+        } else if mime.is_none() || sent.is_none() {
+            let request = request.unwrap();
+            log::info!("{} - {} - {}", peer, request, msg);
+        } else {
+            let request = request.unwrap();
+            let mime = mime.unwrap();
+            let sent = sent.unwrap();
+            log::info!(
+                "{} - {} - {} - {} - {} bytes",
+                peer,
+                request,
+                msg,
+                mime,
+                sent
+            );
+        }
+    }
+
+    fn error_message(e: &NokError) -> Option<String> {
+        match e {
+            NokError::IoError(ref e) => match e.kind() {
+                ErrorKind::UnexpectedEof => None,
+                ErrorKind::InvalidInput => Some("59 Bad request".into()),
+                ErrorKind::NotFound => Some("51 Not found".into()),
+                ErrorKind::TimedOut => Some("59 Bad request; too slow".into()),
+                _ => Some("50 Permanent failure".into()),
+            },
+        }
     }
 
     async fn accepted(&self, stream: TcpStream, peer: SocketAddr) {
         let res = match timeout(TIMEOUT, self.setup(stream)).await {
             Ok(x) => x,
             Err(e) => {
-                log::error!("{} - timeout during setup: {:?}", peer, e);
+                log::warn!("{} - timeout during setup: {:?}", peer, e);
                 return;
             }
         };
         let (mut stream, vhost) = match res {
             Ok((stream, vhost)) => (stream, vhost),
             Err(e) => {
-                log::error!("{} - error during setup: {:?}", peer, e);
+                log::warn!("{} - error during setup: {:?}", peer, e);
                 return;
             }
         };
-        if let Err(e) = self.handle(vhost, &mut stream, &peer).await {
-            let msg = match e.kind() {
-                ErrorKind::UnexpectedEof => None,
-                ErrorKind::InvalidInput => Some("59 Bad request\r\n"),
-                ErrorKind::NotFound => Some("51 Not found\r\n"),
-                ErrorKind::TimedOut => Some("59 Bad request; too slow\r\n"),
-                _ => Some("50 Permanent failure\r\n"),
-            };
-            log::error!(
-                "{} - {} - {}",
-                peer,
-                e,
-                msg.and_then(|x| Some(&x[..x.len() - 2]))
-                    .unwrap_or_default()
-            );
-            if let Some(msg) = msg {
-                let _ = stream.write_all(msg.as_bytes()).await;
-            }
-        }
+        self.handle(vhost, &mut stream, &peer).await
     }
 
     async fn limit(&self, stream: TcpStream, peer: SocketAddr) {

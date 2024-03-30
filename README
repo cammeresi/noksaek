@@ -1,0 +1,39 @@
+This program is a small server that speaks the Gemini protocol.  It's not
+exactly polished or complete; it's just what I thought might serve my own
+needs, and it gave me an excuse to expand my knowledge of and experience
+in Rust.
+
+The server can serve static files, files subjected to light preprocessing,
+and dynamic content.
+
+Preprocessing features:
+
+* simple text insertion from a separately maintained key-value file
+* insertion of image file size into link lines
+* downgrade of image links from foo.jpg to foo-small.jpg if such exists
+
+Dynamic applications must be compiled into the server binary and then
+a point within the filesystem must be configured to link to the app.
+A simple application that generates random numbers is provided.
+
+The server supports setuid and chroot.  Once it starts and loads
+certificates, it can chroot to the content directory, for it has no
+further need for anything located anywhere else, and it can drop to an
+unprivileged user, ideally one that lacks write permission for anywhere
+in the chroot.
+
+A rate limiter is built in.  I set the numbers somewhat low because of
+course we're thinking smol here.
+
+The name of the server is a transliteration of green in Korean (녹색),
+but the first part, 녹, also means rust, which amuses me.  In English
+terms, the pronunciation is approximately "nohk-sek."
+
+For more information on Gemini, see URLs such as
+
+gemini://geminiprotocol.net/
+https://geminiprotocol.net
+
+Sidney Cammeresi
+sac@cheesecake.org
+

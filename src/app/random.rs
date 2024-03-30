@@ -17,6 +17,14 @@ const TEMPLATE_TEXT: &str = "# Random data!\r\n\
 
 struct Random {}
 
+macro_rules! random {
+    ($rng:ident, $map:ident, $type:ty, $hex:literal) => {{
+        let x = $rng.gen::<$type>();
+        $map.insert(concat!(stringify!($type), "-dec"), format!("{:20}", x));
+        $map.insert(concat!(stringify!($type), "-hex"), format!($hex, x));
+    }};
+}
+
 impl Random {
     fn new() -> Self {
         Random {}
@@ -25,18 +33,10 @@ impl Random {
     fn data() -> HashMap<&'static str, String> {
         let mut rng = rand::thread_rng();
         let mut map = HashMap::new();
-        let x = rng.gen::<u8>();
-        map.insert("u8-dec", format!("{:20}", x));
-        map.insert("u8-hex", format!("{:02x}", x));
-        let x = rng.gen::<u16>();
-        map.insert("u16-dec", format!("{:20}", x));
-        map.insert("u16-hex", format!("{:04x}", x));
-        let x = rng.gen::<u32>();
-        map.insert("u32-dec", format!("{:20}", x));
-        map.insert("u32-hex", format!("{:08x}", x));
-        let x = rng.gen::<u64>();
-        map.insert("u64-dec", format!("{:20}", x));
-        map.insert("u64-hex", format!("{:016x}", x));
+        random!(rng, map, u8, "{:02x}");
+        random!(rng, map, u16, "{:04x}");
+        random!(rng, map, u32, "{:08x}");
+        random!(rng, map, u64, "{:016x}");
         map
     }
 

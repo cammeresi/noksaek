@@ -289,6 +289,15 @@ impl NsCtx {
         false
     }
 
+    fn redir_path(path: &[String]) -> String {
+        let mut redir = String::from("/");
+        for p in path {
+            redir.push_str(p);
+            redir.push('/');
+        }
+        redir
+    }
+
     /// returns (file path, args)
     async fn resolve_request<'a>(
         &self, vhost: &VhostCtx, path: &'a [String],
@@ -303,10 +312,12 @@ impl NsCtx {
 
         let mut fs_path = vhost.root.clone();
         let mut i = 0;
+        let mut dir = false;
 
         while i < path.len() {
             if path[i] == "" {
                 i += 1;
+                dir = true;
                 break;
             }
             fs_path.push(&path[i]);
@@ -332,7 +343,11 @@ impl NsCtx {
             Err(Error::new(ErrorKind::NotFound, "not found").into())
         } else if self.test_gmi_file(&mut fs_path, DEFAULT_FILENAME).await {
             // default
-            Ok((fs_path, &[]))
+            if dir {
+                Ok((fs_path, &[]))
+            } else {
+                Err(NokError::Redirect(Self::redir_path(path)))
+            }
         } else {
             Err(Error::new(ErrorKind::NotFound, "not found").into())
         }
@@ -360,7 +375,7 @@ impl NsCtx {
         while let Some(ln) = lines.next_line().await? {
             let ln = ln.splitn(2, " ").collect::<Vec<_>>();
             if ln.len() == 2 {
-                data.insert(ln[0].to_string(), ln[1].to_string());
+                data.insert(ln[0].into(), ln[1].into());
             }
         }
 
@@ -611,6 +626,7 @@ impl NsCtx {
                 ErrorKind::TimedOut => Some("59 Bad request; too slow".into()),
                 _ => Some("50 Permanent failure".into()),
             },
+            NokError::Redirect(url) => Some(format!("31 {}", url)),
         }
     }
 

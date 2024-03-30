@@ -3,6 +3,15 @@ use std::fmt::Formatter;
 pub mod app;
 pub mod server;
 
+#[macro_export]
+macro_rules! break_error {
+    ($res:expr) => {
+        if $res.is_err() {
+            break Some($res.unwrap_err());
+        }
+    };
+}
+
 #[derive(Debug)]
 enum NokError {
     IoError(std::io::Error),

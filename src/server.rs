@@ -555,35 +555,31 @@ impl NsCtx {
         &self, vhost: &VhostCtx, stream: &mut TlsStream<TcpStream>,
         peer: &SocketAddr,
     ) {
-        let (mut request, mut mime, mut sent, mut err) =
-            (None, None, None, None);
-        let res = timeout(TIMEOUT, self.read_request(stream)).await;
-        let res = Self::flatten_result(res);
-        if res.is_ok() {
+        let (mut request, mut mime, mut sent) = (None, None, None);
+
+        let err = loop {
+            let res = timeout(TIMEOUT, self.read_request(stream)).await;
+            let res = Self::flatten_result(res);
+            break_error!(res);
+
             request = Some(res.unwrap());
             log::debug!("request: {:?}", request);
             let res = self.parse_request(vhost, request.as_ref().unwrap());
+            break_error!(res);
 
-            if res.is_ok() {
-                let path = res.unwrap();
-                let res = timeout(
-                    TIMEOUT,
-                    self.handle_request(vhost, stream, peer, &path),
-                )
-                .await;
-                let res = Self::flatten_result(res);
-                if res.is_ok() {
-                    let (s, m) = res.unwrap();
-                    (sent, mime) = (Some(s), Some(m));
-                } else {
-                    err = Some(res.unwrap_err());
-                }
-            } else {
-                err = Some(res.unwrap_err());
-            }
-        } else {
-            err = Some(res.unwrap_err());
-        }
+            let path = res.unwrap();
+            let res = timeout(
+                TIMEOUT,
+                self.handle_request(vhost, stream, peer, &path),
+            )
+            .await;
+            let res = Self::flatten_result(res);
+            break_error!(res);
+
+            let (s, m) = res.unwrap();
+            (sent, mime) = (Some(s), Some(m));
+            break None;
+        };
 
         let msg = if let Some(e) = err {
             if let Some(msg) = Self::error_message(&e) {

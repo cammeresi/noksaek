@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::fmt::{Debug, Formatter};
+use std::fmt::Debug;
 use std::io::{self, Error};
 use std::net::{IpAddr, Ipv6Addr, SocketAddr};
 use std::path::PathBuf;
@@ -15,12 +15,13 @@ use rustls::{
 use rustls_pemfile::{certs, ec_private_keys};
 use tokio::fs::{self, File};
 use tokio::io::{
-    AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader, ErrorKind,
+    AsyncBufReadExt, AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt,
+    BufReader, ErrorKind,
 };
-use tokio::net::{TcpListener, TcpStream};
+use tokio::net::TcpListener;
 use tokio::time::timeout;
 use tokio_rustls::server::TlsStream;
-use tokio_rustls::{rustls, LazyConfigAcceptor};
+use tokio_rustls::LazyConfigAcceptor;
 use tokio_utils::MultiRateLimiter;
 use url::Url;
 
@@ -153,9 +154,10 @@ impl NsCtx {
         Ok(())
     }
 
-    async fn setup(
-        &self, stream: TcpStream,
-    ) -> io::Result<(TlsStream<TcpStream>, &VhostCtx)> {
+    async fn setup<S>(&self, stream: S) -> io::Result<(TlsStream<S>, &VhostCtx)>
+    where
+        S: AsyncRead + AsyncWrite + Unpin,
+    {
         let acceptor = LazyConfigAcceptor::new(
             rustls::server::Acceptor::default(),
             stream,
@@ -181,9 +183,10 @@ impl NsCtx {
         Ok((stream, vhost))
     }
 
-    async fn read_request(
-        &self, stream: &mut TlsStream<TcpStream>,
-    ) -> io::Result<String> {
+    async fn read_request<R>(&self, stream: &mut R) -> io::Result<String>
+    where
+        R: AsyncReadExt + Unpin,
+    {
         let mut buf = [0; 1024 + 2];
         let mut read = 0;
         while read < buf.len() {
@@ -353,9 +356,12 @@ impl NsCtx {
         }
     }
 
-    async fn handle_verbatim(
-        &self, stream: &mut TlsStream<TcpStream>, path: &PathBuf,
-    ) -> io::Result<u64> {
+    async fn handle_verbatim<W>(
+        &self, stream: &mut W, path: &PathBuf,
+    ) -> io::Result<u64>
+    where
+        W: AsyncWrite + Send + Unpin,
+    {
         log::debug!("sending verbatim {}", path.display());
         let mut f = BufReader::new(File::open(path).await?);
         Ok(tokio::io::copy(&mut f, stream).await?)
@@ -437,10 +443,12 @@ impl NsCtx {
     }
 
     /// send gemini text, applying the gemini preprocessor
-    async fn handle_gpp(
-        &self, vhost: &VhostCtx, stream: &mut TlsStream<TcpStream>,
-        path: &PathBuf,
-    ) -> io::Result<u64> {
+    async fn handle_gpp<W>(
+        &self, vhost: &VhostCtx, stream: &mut W, path: &PathBuf,
+    ) -> io::Result<u64>
+    where
+        W: AsyncWrite + Send + Unpin,
+    {
         let data = self.load_gpp_data(&path).await?;
 
         log::debug!("sending gpp {}", path.display());
@@ -467,10 +475,12 @@ impl NsCtx {
         Ok(sent.try_into().unwrap_or_default())
     }
 
-    async fn handle_gmi(
-        &self, vhost: &VhostCtx, stream: &mut TlsStream<TcpStream>,
-        path: &PathBuf,
-    ) -> io::Result<u64> {
+    async fn handle_gmi<W>(
+        &self, vhost: &VhostCtx, stream: &mut W, path: &PathBuf,
+    ) -> io::Result<u64>
+    where
+        W: AsyncWrite + Send + Unpin,
+    {
         let Some(filename) = path.file_name() else {
             return Err(Error::new(ErrorKind::NotFound, "no filename?"));
         };
@@ -484,10 +494,13 @@ impl NsCtx {
         }
     }
 
-    async fn handle_app(
-        &self, _vhost: &VhostCtx, stream: &mut TlsStream<TcpStream>,
-        peer: &SocketAddr, path: &PathBuf, args: &[String],
-    ) -> io::Result<u64> {
+    async fn handle_app<W>(
+        &self, _vhost: &VhostCtx, stream: &mut W, peer: &SocketAddr,
+        path: &PathBuf, args: &[String],
+    ) -> io::Result<u64>
+    where
+        W: AsyncWrite + Send + Unpin,
+    {
         let app = fs::read_to_string(&path).await?;
         let app = app.trim();
         log::info!("running app {} {:?}", app, args);
@@ -497,14 +510,18 @@ impl NsCtx {
                 format!("unregistered app \"{}\"", app),
             ));
         };
+        let stream = Box::new(stream as &mut (dyn AsyncWrite + Send + Unpin));
         app.run(args, stream, peer, &self.tmpl).await
     }
 
     /// returns (byte sent, mime type)
-    async fn handle_request(
-        &self, vhost: &VhostCtx, stream: &mut TlsStream<TcpStream>,
-        peer: &SocketAddr, path: &[String],
-    ) -> Result<(u64, String), NokError> {
+    async fn handle_request<W>(
+        &self, vhost: &VhostCtx, stream: &mut W, peer: &SocketAddr,
+        path: &[String],
+    ) -> Result<(u64, String), NokError>
+    where
+        W: AsyncWrite + Send + Unpin,
+    {
         let (path, args) = self.resolve_request(vhost, &path).await?;
         log::debug!("resolved: path {:?}, args {:?}", path, args);
 
@@ -551,10 +568,11 @@ impl NsCtx {
         }
     }
 
-    async fn handle(
-        &self, vhost: &VhostCtx, stream: &mut TlsStream<TcpStream>,
-        peer: &SocketAddr,
-    ) {
+    async fn handle<W>(
+        &self, vhost: &VhostCtx, stream: &mut W, peer: &SocketAddr,
+    ) where
+        W: AsyncReadExt + AsyncWrite + Send + Unpin,
+    {
         let (mut request, mut mime, mut sent) = (None, None, None);
 
         let err = loop {
@@ -626,7 +644,10 @@ impl NsCtx {
         }
     }
 
-    async fn accepted(&self, stream: TcpStream, peer: SocketAddr) {
+    async fn accepted<S>(&self, stream: S, peer: SocketAddr)
+    where
+        S: AsyncRead + AsyncWrite + Send + Unpin,
+    {
         let res = match timeout(TIMEOUT, self.setup(stream)).await {
             Ok(x) => x,
             Err(e) => {
@@ -644,7 +665,10 @@ impl NsCtx {
         self.handle(vhost, &mut stream, &peer).await
     }
 
-    async fn limit(&self, stream: TcpStream, peer: SocketAddr) {
+    async fn limit<S>(&self, stream: S, peer: SocketAddr)
+    where
+        S: AsyncRead + AsyncWrite + Send + Unpin,
+    {
         let ipaddr = match peer {
             SocketAddr::V4(_) => unimplemented!(),
             SocketAddr::V6(addr) => addr.ip().clone(),

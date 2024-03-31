@@ -3,8 +3,7 @@ use std::net::SocketAddr;
 
 use async_trait::async_trait;
 use handlebars::Handlebars;
-use tokio::net::TcpStream;
-use tokio_rustls::server::TlsStream;
+use tokio::io::AsyncWrite;
 
 use linker_set::*;
 
@@ -29,7 +28,8 @@ pub trait Application {
 
     /// returns number of bytes written
     async fn run(
-        &self, args: &[String], stream: &mut TlsStream<TcpStream>,
-        peer: &SocketAddr, tmpl: &Handlebars,
+        &self, args: &[String],
+        stream: Box<&mut (dyn AsyncWrite + Send + Unpin)>, peer: &SocketAddr,
+        tmpl: &Handlebars,
     ) -> io::Result<u64>;
 }

@@ -61,7 +61,8 @@ impl Application for Random {
     }
 
     async fn run(
-        &self, _args: &[String], stream: &mut TlsStream<TcpStream>,
+        &self, _args: &[String],
+        mut stream: Box<&mut (dyn AsyncWrite + Send + Unpin)>,
         _peer: &SocketAddr, tmpl: &Handlebars,
     ) -> io::Result<u64> {
         let out = self.gen(tmpl)?;

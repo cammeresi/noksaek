@@ -1,0 +1,28 @@
+[package]
+name = "noksaek-fuzz"
+version = "0.1.0"
+publish = false
+edition = "2021"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+
+[dependencies.noksaek]
+path = ".."
+
+[[bin]]
+name = "server_handle"
+path = "fuzz_targets/server_handle.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "server_accepted"
+path = "fuzz_targets/server_accepted.rs"
+test = false
+doc = false
+bench = false

@@ -6,7 +6,7 @@ use handlebars::Handlebars;
 use tokio::net::TcpStream;
 use tokio_rustls::server::TlsStream;
 
-use linkerset::*;
+use linker_set::*;
 
 pub type BoxApplication = Box<dyn Application + Send + Sync>;
 pub type ResultApplication = io::Result<(String, BoxApplication)>;

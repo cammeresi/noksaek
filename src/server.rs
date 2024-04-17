@@ -658,7 +658,7 @@ impl NsCtx {
         let (mut stream, vhost) = match res {
             Ok((stream, vhost)) => (stream, vhost),
             Err(e) => {
-                log::warn!("{} - error during setup: {:?}", peer, e);
+                log::warn!("{} - failed during setup: {:?}", peer, e);
                 return;
             }
         };

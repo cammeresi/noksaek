@@ -93,7 +93,7 @@ impl NsCtx {
     }
 
     fn register_apps(&mut self) {
-        for app in set_iter!(apps) {
+        for app in set!(apps) {
             let (name, mut app) = app().expect("app creation failure");
             app.init(&mut self.tmpl)
                 .expect(&format!("app \"{}\" init failed", name));

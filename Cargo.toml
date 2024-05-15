@@ -15,7 +15,7 @@ clap = { version = "4.5.3", features = ["derive"] }
 handlebars = "5.1.2"
 libc = "0.2.153"
 libfuzzer-sys = "0.4"
-linker-set = "0.1.0"
+linker-set = { path = "../linker-set", version = "0.2.0" }
 log = "0.4.21"
 mime = "0.3.17"
 mime_guess = "2.0.4"

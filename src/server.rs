@@ -415,8 +415,10 @@ impl NsCtx {
             format!(" [{} bytes]", sz)
         } else if sz < 1024 * 1024 {
             format!(" [{} KB]", sz / 1024)
-        } else {
+        } else if sz < 10 * 1024 * 1024 {
             format!(" [{:.1} MB]", sz as f32 / 1024.0 / 1024.0)
+        } else {
+            format!(" [{} MB]", sz / 1024 / 1024)
         }
     }
 

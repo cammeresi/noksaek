@@ -684,15 +684,34 @@ impl NsCtx {
     }
 }
 
+fn setup_logger(logdir: Option<String>) {
+    use flexi_logger::{
+        opt_format, AdaptiveFormat, Cleanup, Criterion, FileSpec, Logger,
+        Naming,
+    };
+
+    let mut log = Logger::try_with_str("info").unwrap();
+    if let Some(dir) = logdir {
+        log = log.log_to_file(
+            FileSpec::default().directory(dir).basename("noksaek"),
+        );
+    }
+    log.rotate(
+        Criterion::Size(100 * 1024 * 1024),
+        Naming::Numbers,
+        Cleanup::KeepLogFiles(10),
+    )
+    .adaptive_format_for_stderr(AdaptiveFormat::Opt)
+    .format_for_files(opt_format)
+    .start()
+    .unwrap();
+}
+
 pub async fn main(
-    port: u16, root: String, setuid: Option<String>, chroot: bool,
+    port: u16, root: String, logdir: Option<String>, setuid: Option<String>,
+    chroot: bool,
 ) -> io::Result<()> {
-    pretty_env_logger::formatted_timed_builder()
-        .default_format()
-        .filter_level(log::LevelFilter::Info)
-        .format_indent(None)
-        .format_timestamp_micros()
-        .init();
+    setup_logger(logdir);
 
     let mut ctx = NsCtx::new(port);
     ctx.init_walk(&root)?;

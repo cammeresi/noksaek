@@ -10,6 +10,9 @@ struct Args {
     #[arg(long, value_name = "DOCROOT")]
     root: String,
 
+    #[arg(long, value_name = "LOGDIR")]
+    logdir: Option<String>,
+
     #[arg(long, value_name = "USERNAME")]
     setuid: Option<String>,
 
@@ -20,5 +23,12 @@ struct Args {
 #[tokio::main]
 async fn main() -> std::io::Result<()> {
     let args = Args::parse();
-    noksaek::server::main(args.port, args.root, args.setuid, args.chroot).await
+    noksaek::server::main(
+        args.port,
+        args.root,
+        args.logdir,
+        args.setuid,
+        args.chroot,
+    )
+    .await
 }

@@ -1,3 +1,6 @@
+#[cfg(test)]
+mod test;
+
 #[cfg(fuzzing)]
 pub mod fuzz;
 
@@ -19,7 +22,7 @@ use rustls_pemfile::{certs, ec_private_keys};
 use tokio::fs::{self, File};
 use tokio::io::{
     AsyncBufReadExt, AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt,
-    BufReader, ErrorKind,
+    BufReader, ErrorKind, ReadBuf,
 };
 use tokio::net::TcpListener;
 use tokio::time::timeout;
@@ -55,7 +58,7 @@ impl VhostCtx {
     }
 }
 
-struct NsCtx {
+pub struct NsCtx {
     port: u16,
     vhosts: HashMap<String, VhostCtx>,
     tag_re: Regex,
@@ -186,18 +189,24 @@ impl NsCtx {
         Ok((stream, vhost))
     }
 
-    async fn read_request<R>(&self, stream: &mut R) -> io::Result<String>
+    pub async fn read_request<R>(stream: &mut R) -> io::Result<String>
     where
         R: AsyncReadExt + Unpin,
     {
-        let mut buf = [0; 1024 + 2];
+        const MAX_REQUEST: usize = 1024 + 2; // 1 KB + crlf
+
+        let mut buf = Vec::with_capacity(MAX_REQUEST);
+        let mut rb = ReadBuf::uninit(buf.spare_capacity_mut());
         let mut read = 0;
-        while read < buf.len() {
-            let n = stream.read(&mut buf[read..]).await?;
+        while rb.remaining() > 0 {
+            let n = stream.read_buf(&mut rb).await?;
             read += n;
-            if n == 0 || read >= 2 && buf[read - 2..read] == [13, 10] {
+            if n == 0 || read >= 2 && rb.filled()[read - 2..read] == [13, 10] {
                 break;
             }
+        }
+        unsafe {
+            buf.set_len(read);
         }
 
         if read < 2 {
@@ -209,7 +218,8 @@ impl NsCtx {
             ));
         }
 
-        match String::from_utf8(buf[..read - 2].to_vec()) {
+        buf.truncate(read - 2);
+        match String::from_utf8(buf) {
             Ok(s) => Ok(s),
             Err(_) => Err(Error::new(ErrorKind::InvalidInput, "invalid utf8")),
         }
@@ -581,7 +591,7 @@ impl NsCtx {
         let (mut request, mut mime, mut sent) = (None, None, None);
 
         let err = loop {
-            let res = timeout(TIMEOUT, self.read_request(stream)).await;
+            let res = timeout(TIMEOUT, Self::read_request(stream)).await;
             let res = Self::flatten_result(res);
             break_error!(res);
 

@@ -1,0 +1,8 @@
+[Unit]
+Description=gemini server
+
+[Service]
+ExecStart=/path/noksaek --root /path/gem --setuid nobody --chroot --logdir /var/log/gemini
+
+[Install]
+WantedBy=multi-user.target

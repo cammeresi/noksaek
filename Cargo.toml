@@ -9,6 +9,7 @@ edition = "2021"
 
 [dev-dependencies]
 criterion = { version = "0.5.1", features = ["async", "async_tokio", "html_reports"] }
+libfuzzer-sys = "0.4"
 
 [[bench]]
 name = "bench_server"
@@ -20,7 +21,6 @@ clap = { version = "4.5.3", features = ["derive"] }
 flexi_logger = "0.28.0"
 handlebars = "5.1.2"
 libc = "0.2.153"
-libfuzzer-sys = "0.4"
 linker-set = { path = "../linker-set", version = "0.2.0" }
 log = "0.4.21"
 mime = "0.3.17"

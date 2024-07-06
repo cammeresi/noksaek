@@ -6,8 +6,9 @@ pub mod server;
 #[macro_export]
 macro_rules! break_error {
     ($res:expr) => {
-        if $res.is_err() {
-            break Some($res.unwrap_err());
+        match $res {
+            Err(e) => break Some(e),
+            _ => (),
         }
     };
 }

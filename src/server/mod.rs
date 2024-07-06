@@ -8,7 +8,7 @@ use std::collections::HashMap;
 use std::fmt::Debug;
 use std::io::{self, Error};
 use std::net::{IpAddr, Ipv6Addr, SocketAddr};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -239,7 +239,7 @@ impl NsCtx {
             );
         }
         if let Some(host) = url.host_str() {
-            if host != &vhost.name {
+            if host != vhost.name {
                 return Err(Error::new(
                     ErrorKind::InvalidInput,
                     "wrong hostname",
@@ -381,9 +381,9 @@ impl NsCtx {
     }
 
     async fn load_gpp_data(
-        &self, path: &PathBuf,
+        &self, path: &Path,
     ) -> io::Result<HashMap<String, String>> {
-        let mut path = path.clone();
+        let mut path = path.to_path_buf();
         path.set_extension("data");
 
         let mut data = HashMap::new();
@@ -403,21 +403,21 @@ impl NsCtx {
     }
 
     fn resolve_file_path(
-        vhost: &VhostCtx, path: &PathBuf, file: &str,
+        vhost: &VhostCtx, path: &Path, file: &str,
     ) -> PathBuf {
-        if file.starts_with('/') {
+        if let Some(stripped) = file.strip_prefix('/') {
             let mut path = vhost.root.clone();
-            path.push(&file[1..]);
+            path.push(stripped);
             path
         } else {
-            let mut path = path.clone();
+            let mut path = path.to_path_buf();
             path.pop();
             path.push(file);
             path
         }
     }
 
-    async fn get_size(vhost: &VhostCtx, path: &PathBuf, file: &str) -> String {
+    async fn get_size(vhost: &VhostCtx, path: &Path, file: &str) -> String {
         let path = Self::resolve_file_path(vhost, path, file);
         let Ok(meta) = fs::metadata(&path).await else {
             return String::new();
@@ -436,7 +436,7 @@ impl NsCtx {
     }
 
     async fn resolve_image(
-        &self, vhost: &VhostCtx, path: &PathBuf, file: &str,
+        &self, vhost: &VhostCtx, path: &Path, file: &str,
     ) -> io::Result<String> {
         let small = if let Some(m) = self.ext_re.captures(file) {
             let mut file = m[1].to_owned();
@@ -590,6 +590,7 @@ impl NsCtx {
     {
         let (mut request, mut mime, mut sent) = (None, None, None);
 
+        #[allow(clippy::never_loop)]
         let err = loop {
             let res = timeout(TIMEOUT, Self::read_request(stream)).await;
             let res = Self::flatten_result(res);

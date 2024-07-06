@@ -102,7 +102,7 @@ impl NsCtx {
         for app in set!(apps) {
             let (name, mut app) = app().expect("app creation failure");
             app.init(&mut self.tmpl)
-                .expect(&format!("app \"{}\" init failed", name));
+                .unwrap_or_else(|_| panic!("app \"{}\" init failed", name));
             log::info!("registered app \"{}\"", name);
             self.apps.insert(name, app);
         }
@@ -228,7 +228,7 @@ impl NsCtx {
     fn parse_request(
         &self, vhost: &VhostCtx, request: &str,
     ) -> Result<Vec<String>, NokError> {
-        let Ok(url) = Url::parse(&request) else {
+        let Ok(url) = Url::parse(request) else {
             return Err(
                 Error::new(ErrorKind::InvalidInput, "invalid url").into()
             );
@@ -256,7 +256,7 @@ impl NsCtx {
         let segs = match url.path_segments() {
             None => Ok(Vec::new()),
             Some(path) => path
-                .map(|x| urlencoding::decode(x))
+                .map(urlencoding::decode)
                 .collect::<Result<Vec<_>, _>>(),
         };
         match segs {
@@ -331,7 +331,7 @@ impl NsCtx {
         let mut dir = false;
 
         while i < path.len() {
-            if path[i] == "" {
+            if path[i].is_empty() {
                 i += 1;
                 dir = true;
                 break;
@@ -377,7 +377,7 @@ impl NsCtx {
     {
         log::debug!("sending verbatim {}", path.display());
         let mut f = BufReader::new(File::open(path).await?);
-        Ok(tokio::io::copy(&mut f, stream).await?)
+        tokio::io::copy(&mut f, stream).await
     }
 
     async fn load_gpp_data(
@@ -392,7 +392,7 @@ impl NsCtx {
         };
         let mut lines = BufReader::new(f).lines();
         while let Some(ln) = lines.next_line().await? {
-            let ln = ln.splitn(2, " ").collect::<Vec<_>>();
+            let ln = ln.splitn(2, ' ').collect::<Vec<_>>();
             if ln.len() == 2 {
                 data.insert(ln[0].into(), ln[1].into());
             }
@@ -405,7 +405,7 @@ impl NsCtx {
     fn resolve_file_path(
         vhost: &VhostCtx, path: &PathBuf, file: &str,
     ) -> PathBuf {
-        if file.starts_with("/") {
+        if file.starts_with('/') {
             let mut path = vhost.root.clone();
             path.push(&file[1..]);
             path
@@ -464,7 +464,7 @@ impl NsCtx {
     where
         W: AsyncWrite + Send + Unpin,
     {
-        let data = self.load_gpp_data(&path).await?;
+        let data = self.load_gpp_data(path).await?;
 
         log::debug!("sending gpp {}", path.display());
         let mut lines = BufReader::new(File::open(path).await?).lines();
@@ -537,7 +537,7 @@ impl NsCtx {
     where
         W: AsyncWrite + Send + Unpin,
     {
-        let (path, args) = self.resolve_request(vhost, &path).await?;
+        let (path, args) = self.resolve_request(vhost, path).await?;
         log::debug!("resolved: path {:?}, args {:?}", path, args);
 
         let mime = mime_guess::from_path(&path)
@@ -556,7 +556,7 @@ impl NsCtx {
 
         log::debug!("mime type: {}", mime);
         stream
-            .write_all(&format!("20 {}\r\n", mime).as_bytes())
+            .write_all(format!("20 {}\r\n", mime).as_bytes())
             .await?;
 
         let sent = if app {
@@ -686,7 +686,7 @@ impl NsCtx {
     {
         let ipaddr = match peer {
             SocketAddr::V4(_) => unimplemented!(),
-            SocketAddr::V6(addr) => addr.ip().clone(),
+            SocketAddr::V6(addr) => *addr.ip(),
         };
         self.ip_limit
             .throttle(ipaddr, move || {

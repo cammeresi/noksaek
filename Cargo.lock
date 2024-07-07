@@ -853,7 +853,9 @@ dependencies = [
 
 [[package]]
 name = "linker-set"
-version = "0.2.0"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "35308d56146a79e58e95325dc25b9c542a3d57ab15ba1e2659bd9a0eb79210bb"
 dependencies = [
  "linker-set-proc",
  "paste",
@@ -862,6 +864,8 @@ dependencies = [
 [[package]]
 name = "linker-set-proc"
 version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "07dfc2885a5f947522a84acedc5545657e9f8e2f71830c3f27f9b06c754c946c"
 dependencies = [
  "paste",
  "quote",

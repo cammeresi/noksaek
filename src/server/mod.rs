@@ -735,7 +735,7 @@ pub async fn main(
 
     let mut uid = None;
     if let Some(ref username) = setuid {
-        let Some(user) = users::get_user_by_name(username) else {
+        let Some(user) = uzers::get_user_by_name(username) else {
             return Err(Error::new(ErrorKind::NotFound, "unknown user"));
         };
         uid = Some(user.uid());

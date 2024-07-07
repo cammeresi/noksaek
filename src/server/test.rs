@@ -1,6 +1,6 @@
+use super::*;
 use tokio::io::BufReader;
 use tokio::runtime::Runtime;
-use super::*;
 
 #[test]
 fn test_vec_capacity() {

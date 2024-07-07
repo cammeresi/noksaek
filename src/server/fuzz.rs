@@ -67,18 +67,14 @@ fn random_peer(data: &mut Unstructured) -> SocketAddr {
     )
 }
 
-fn random_vhost<'a>(
-    ctx: &'a NsCtx, data: &mut Unstructured,
-) -> &'a VhostCtx {
+fn random_vhost<'a>(ctx: &'a NsCtx, data: &mut Unstructured) -> &'a VhostCtx {
     let vhosts = ctx.vhosts.values().collect::<Vec<_>>();
     let x = usize::arbitrary(data).unwrap();
     vhosts[x % vhosts.len()]
 }
 
 fn take_rest(data: Unstructured) -> FuzzStream<&[u8]> {
-    FuzzStream::new(
-        <&[u8] as Arbitrary>::arbitrary_take_rest(data).unwrap(),
-    )
+    FuzzStream::new(<&[u8] as Arbitrary>::arbitrary_take_rest(data).unwrap())
 }
 
 pub fn handle(data: &[u8]) {

@@ -255,9 +255,9 @@ impl NsCtx {
         }
         let segs = match url.path_segments() {
             None => Ok(Vec::new()),
-            Some(path) => path
-                .map(urlencoding::decode)
-                .collect::<Result<Vec<_>, _>>(),
+            Some(path) => {
+                path.map(urlencoding::decode).collect::<Result<Vec<_>, _>>()
+            }
         };
         match segs {
             Err(_) => {
@@ -402,9 +402,7 @@ impl NsCtx {
         Ok(data)
     }
 
-    fn resolve_file_path(
-        vhost: &VhostCtx, path: &Path, file: &str,
-    ) -> PathBuf {
+    fn resolve_file_path(vhost: &VhostCtx, path: &Path, file: &str) -> PathBuf {
         if let Some(stripped) = file.strip_prefix('/') {
             let mut path = vhost.root.clone();
             path.push(stripped);

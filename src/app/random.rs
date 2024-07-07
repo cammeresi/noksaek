@@ -15,7 +15,7 @@ const TEMPLATE_TEXT: &str = "# Random data!\r\n\
                              * u64 - {{u64-dec}} - {{u64-hex}}\r\n\
                              ```\r\n";
 
-struct Random {}
+struct Random;
 
 macro_rules! random {
     ($rng:ident, $map:ident, $type:ty, $hex:literal) => {{
@@ -27,7 +27,7 @@ macro_rules! random {
 
 impl Random {
     fn new() -> Self {
-        Random {}
+        Random
     }
 
     fn data() -> HashMap<&'static str, String> {

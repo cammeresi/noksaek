@@ -20,6 +20,7 @@ macro_rules! register_application {
     };
 }
 
+pub mod hello;
 pub mod random;
 
 #[async_trait]

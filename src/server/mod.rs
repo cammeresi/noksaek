@@ -664,6 +664,11 @@ where
     fn add_host(&mut self, host: String, vhost: V) {
         self.vhosts.insert(host, vhost);
     }
+
+    #[cfg(test)]
+    fn get_host(&self, name: &str) -> &V {
+        self.vhosts.get(name).expect("unknown vhost")
+    }
 }
 
 fn read_file(p: PathBuf) -> io::Result<io::BufReader<std::fs::File>> {

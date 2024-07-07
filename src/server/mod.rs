@@ -21,7 +21,7 @@ use rustls::{
 use rustls_pemfile::{certs, ec_private_keys};
 use tokio::fs::{self, File};
 use tokio::io::{
-    AsyncBufReadExt, AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt,
+    split, AsyncBufReadExt, AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt,
     BufReader, ErrorKind, ReadBuf,
 };
 use tokio::net::TcpListener;
@@ -547,15 +547,17 @@ where
         }
     }
 
-    async fn handle<W>(&self, vhost: &V, stream: &mut W, peer: &SocketAddr)
-    where
-        W: AsyncReadExt + AsyncWrite + Send + Unpin,
+    async fn handle<R, W>(
+        &self, vhost: &V, r: &mut R, w: &mut W, peer: &SocketAddr,
+    ) where
+        R: AsyncReadExt + Send + Unpin,
+        W: AsyncWrite + Send + Unpin,
     {
         let (mut request, mut mime, mut sent) = (None, None, None);
 
         #[allow(clippy::never_loop)]
         let err = loop {
-            let res = timeout(TIMEOUT, Self::read_request(stream)).await;
+            let res = timeout(TIMEOUT, Self::read_request(r)).await;
             let res = Self::flatten_result(res);
             break_error!(res);
 
@@ -565,11 +567,9 @@ where
             break_error!(res);
 
             let path = res.unwrap();
-            let res = timeout(
-                TIMEOUT,
-                self.handle_request(vhost, stream, peer, &path),
-            )
-            .await;
+            let res =
+                timeout(TIMEOUT, self.handle_request(vhost, w, peer, &path))
+                    .await;
             let res = Self::flatten_result(res);
             break_error!(res);
 
@@ -580,8 +580,8 @@ where
 
         let msg = if let Some(e) = err {
             if let Some(msg) = Self::error_message(&e) {
-                let _ = stream.write_all(msg.as_bytes()).await;
-                let _ = stream.write_all(b"\r\n").await;
+                let _ = w.write_all(msg.as_bytes()).await;
+                let _ = w.write_all(b"\r\n").await;
                 msg
             } else {
                 "".into()
@@ -634,14 +634,15 @@ where
                 return;
             }
         };
-        let (mut stream, vhost) = match res {
+        let (stream, vhost) = match res {
             Ok((stream, vhost)) => (stream, vhost),
             Err(e) => {
                 log::warn!("{} - failed during setup: {:?}", peer, e);
                 return;
             }
         };
-        self.handle(vhost, &mut stream, &peer).await
+        let (mut r, mut w) = split(stream);
+        self.handle(vhost, &mut r, &mut w, &peer).await
     }
 
     async fn limit<S>(&self, stream: S, peer: SocketAddr)

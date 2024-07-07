@@ -1,7 +1,7 @@
 use criterion::{criterion_group, criterion_main, Criterion};
 
 fn bench_read_request(c: &mut Criterion) {
-    use noksaek::server::NsCtx;
+    use noksaek::server::{NsCtx, VhostCtx};
     use tokio::io::BufReader;
     use tokio::runtime::Runtime;
 
@@ -9,7 +9,7 @@ fn bench_read_request(c: &mut Criterion) {
         b.to_async(Runtime::new().unwrap()).iter(|| async {
             const REQUEST: &str = "gemini://example.org/foo/bar/baz\r\n";
             let mut stream = BufReader::new(REQUEST.as_bytes());
-            NsCtx::read_request(&mut stream).await
+            NsCtx::<VhostCtx>::read_request(&mut stream).await
         });
     });
 }

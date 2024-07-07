@@ -43,14 +43,30 @@ const TIMEOUT: Duration = Duration::from_secs(5);
 const IP_RATE_LIMIT_MS: u64 = 100; // 10 per sec
 const GLOBAL_RATE_LIMIT_MS: u64 = 10; // 100 per sec
 
-struct VhostCtx {
+pub trait Certificate {
+    fn name(&self) -> &str;
+    fn root(&self) -> &PathBuf;
+    fn get_cert(
+        &self,
+    ) -> (Vec<CertificateDer<'static>>, PrivateSec1KeyDer<'static>);
+}
+
+pub struct VhostCtx {
     name: String,
     certs: Vec<CertificateDer<'static>>,
     key: PrivateSec1KeyDer<'static>,
-    root: PathBuf,
+    rootdir: PathBuf,
 }
 
-impl VhostCtx {
+impl Certificate for VhostCtx {
+    fn name(&self) -> &str {
+        &self.name
+    }
+
+    fn root(&self) -> &PathBuf {
+        &self.rootdir
+    }
+
     fn get_cert(
         &self,
     ) -> (Vec<CertificateDer<'static>>, PrivateSec1KeyDer<'static>) {
@@ -58,9 +74,9 @@ impl VhostCtx {
     }
 }
 
-pub struct NsCtx {
+pub struct NsCtx<V> {
     port: u16,
-    vhosts: HashMap<String, VhostCtx>,
+    vhosts: HashMap<String, V>,
     tag_re: Regex,
     img_re: Regex,
     ext_re: Regex,
@@ -70,13 +86,16 @@ pub struct NsCtx {
     tmpl: Handlebars<'static>,
 }
 
-impl Debug for NsCtx {
+impl<V> Debug for NsCtx<V> {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), std::fmt::Error> {
         write!(f, "NsCtx")
     }
 }
 
-impl NsCtx {
+impl<V> NsCtx<V>
+where
+    V: Certificate,
+{
     fn new(port: u16) -> Self {
         let mut s = Self {
             port,
@@ -108,59 +127,7 @@ impl NsCtx {
         }
     }
 
-    fn read_file(p: PathBuf) -> io::Result<io::BufReader<std::fs::File>> {
-        Ok(io::BufReader::new(std::fs::File::open(p)?))
-    }
-
-    fn add_host(
-        &mut self, host: String, certs: Vec<CertificateDer<'static>>,
-        key: PrivateSec1KeyDer<'static>, root: PathBuf,
-    ) {
-        log::info!("adding vhost {}", host);
-        self.vhosts.insert(
-            host.clone(),
-            VhostCtx {
-                name: host,
-                certs,
-                key,
-                root,
-            },
-        );
-    }
-
-    fn init_walk(&mut self, root: &str) -> io::Result<()> {
-        const CERTS_DIR: &str = "certificates";
-        const CERT: &str = "cert.pem";
-        const KEY: &str = "key.pem";
-
-        let mut dir = PathBuf::from(root);
-        dir.push(CERTS_DIR);
-
-        let dir = std::fs::read_dir(dir)?;
-        for f in dir {
-            let f = f?;
-            if !f.file_type()?.is_dir() {
-                continue;
-            }
-            let host = f.file_name().into_string().unwrap();
-            let mut path = [root, CERTS_DIR, &host, CERT];
-            let p = path.iter().collect::<PathBuf>();
-            let c = certs(&mut Self::read_file(p)?)
-                .map(|x| x.unwrap())
-                .collect::<Vec<_>>();
-            path[3] = KEY;
-            let p = path.iter().collect::<PathBuf>();
-            let k = ec_private_keys(&mut Self::read_file(p)?)
-                .next()
-                .expect("no key")?;
-
-            let content = [&host];
-            self.add_host(host.clone(), c, k, content.iter().collect());
-        }
-        Ok(())
-    }
-
-    async fn setup<S>(&self, stream: S) -> io::Result<(TlsStream<S>, &VhostCtx)>
+    async fn setup<S>(&self, stream: S) -> io::Result<(TlsStream<S>, &V)>
     where
         S: AsyncRead + AsyncWrite + Unpin,
     {
@@ -226,7 +193,7 @@ impl NsCtx {
     }
 
     fn parse_request(
-        &self, vhost: &VhostCtx, request: &str,
+        &self, vhost: &V, request: &str,
     ) -> Result<Vec<String>, NokError> {
         let Ok(url) = Url::parse(request) else {
             return Err(
@@ -239,7 +206,7 @@ impl NsCtx {
             );
         }
         if let Some(host) = url.host_str() {
-            if host != vhost.name {
+            if host != vhost.name() {
                 return Err(Error::new(
                     ErrorKind::InvalidInput,
                     "wrong hostname",
@@ -315,9 +282,9 @@ impl NsCtx {
     }
 
     /// returns (file path, args)
-    async fn resolve_request<'a>(
-        &self, vhost: &VhostCtx, path: &'a [String],
-    ) -> Result<(PathBuf, &'a [String]), NokError> {
+    async fn resolve_request<'b>(
+        &self, vhost: &V, path: &'b [String],
+    ) -> Result<(PathBuf, &'b [String]), NokError> {
         for p in path.iter() {
             if p.starts_with('.') {
                 return Err(
@@ -326,7 +293,7 @@ impl NsCtx {
             }
         }
 
-        let mut fs_path = vhost.root.clone();
+        let mut fs_path = vhost.root().clone();
         let mut i = 0;
         let mut dir = false;
 
@@ -402,9 +369,9 @@ impl NsCtx {
         Ok(data)
     }
 
-    fn resolve_file_path(vhost: &VhostCtx, path: &Path, file: &str) -> PathBuf {
+    fn resolve_file_path(vhost: &V, path: &Path, file: &str) -> PathBuf {
         if let Some(stripped) = file.strip_prefix('/') {
-            let mut path = vhost.root.clone();
+            let mut path = vhost.root().clone();
             path.push(stripped);
             path
         } else {
@@ -415,7 +382,7 @@ impl NsCtx {
         }
     }
 
-    async fn get_size(vhost: &VhostCtx, path: &Path, file: &str) -> String {
+    async fn get_size(vhost: &V, path: &Path, file: &str) -> String {
         let path = Self::resolve_file_path(vhost, path, file);
         let Ok(meta) = fs::metadata(&path).await else {
             return String::new();
@@ -434,7 +401,7 @@ impl NsCtx {
     }
 
     async fn resolve_image(
-        &self, vhost: &VhostCtx, path: &Path, file: &str,
+        &self, vhost: &V, path: &Path, file: &str,
     ) -> io::Result<String> {
         let small = if let Some(m) = self.ext_re.captures(file) {
             let mut file = m[1].to_owned();
@@ -457,7 +424,7 @@ impl NsCtx {
 
     /// send gemini text, applying the gemini preprocessor
     async fn handle_gpp<W>(
-        &self, vhost: &VhostCtx, stream: &mut W, path: &PathBuf,
+        &self, vhost: &V, stream: &mut W, path: &PathBuf,
     ) -> io::Result<u64>
     where
         W: AsyncWrite + Send + Unpin,
@@ -489,7 +456,7 @@ impl NsCtx {
     }
 
     async fn handle_gmi<W>(
-        &self, vhost: &VhostCtx, stream: &mut W, path: &PathBuf,
+        &self, vhost: &V, stream: &mut W, path: &PathBuf,
     ) -> io::Result<u64>
     where
         W: AsyncWrite + Send + Unpin,
@@ -508,8 +475,8 @@ impl NsCtx {
     }
 
     async fn handle_app<W>(
-        &self, _vhost: &VhostCtx, stream: &mut W, peer: &SocketAddr,
-        path: &PathBuf, args: &[String],
+        &self, _vhost: &V, stream: &mut W, peer: &SocketAddr, path: &PathBuf,
+        args: &[String],
     ) -> io::Result<u64>
     where
         W: AsyncWrite + Send + Unpin,
@@ -529,8 +496,7 @@ impl NsCtx {
 
     /// returns (byte sent, mime type)
     async fn handle_request<W>(
-        &self, vhost: &VhostCtx, stream: &mut W, peer: &SocketAddr,
-        path: &[String],
+        &self, vhost: &V, stream: &mut W, peer: &SocketAddr, path: &[String],
     ) -> Result<(u64, String), NokError>
     where
         W: AsyncWrite + Send + Unpin,
@@ -581,9 +547,8 @@ impl NsCtx {
         }
     }
 
-    async fn handle<W>(
-        &self, vhost: &VhostCtx, stream: &mut W, peer: &SocketAddr,
-    ) where
+    async fn handle<W>(&self, vhost: &V, stream: &mut W, peer: &SocketAddr)
+    where
         W: AsyncReadExt + AsyncWrite + Send + Unpin,
     {
         let (mut request, mut mime, mut sent) = (None, None, None);
@@ -694,6 +659,63 @@ impl NsCtx {
             })
             .await;
     }
+
+    fn add_host(&mut self, host: String, vhost: V) {
+        self.vhosts.insert(host, vhost);
+    }
+}
+
+fn read_file(p: PathBuf) -> io::Result<io::BufReader<std::fs::File>> {
+    Ok(io::BufReader::new(std::fs::File::open(p)?))
+}
+
+fn add_host(
+    ctx: &mut NsCtx<VhostCtx>, host: String,
+    certs: Vec<CertificateDer<'static>>, key: PrivateSec1KeyDer<'static>,
+    root: PathBuf,
+) {
+    log::info!("adding vhost {}", host);
+    ctx.add_host(
+        host.clone(),
+        VhostCtx {
+            name: host,
+            certs,
+            key,
+            rootdir: root,
+        },
+    );
+}
+
+fn init_walk(ctx: &mut NsCtx<VhostCtx>, root: &str) -> io::Result<()> {
+    const CERTS_DIR: &str = "certificates";
+    const CERT: &str = "cert.pem";
+    const KEY: &str = "key.pem";
+
+    let mut dir = PathBuf::from(root);
+    dir.push(CERTS_DIR);
+
+    let dir = std::fs::read_dir(dir)?;
+    for f in dir {
+        let f = f?;
+        if !f.file_type()?.is_dir() {
+            continue;
+        }
+        let host = f.file_name().into_string().unwrap();
+        let mut path = [root, CERTS_DIR, &host, CERT];
+        let p = path.iter().collect::<PathBuf>();
+        let c = certs(&mut read_file(p)?)
+            .map(|x| x.unwrap())
+            .collect::<Vec<_>>();
+        path[3] = KEY;
+        let p = path.iter().collect::<PathBuf>();
+        let k = ec_private_keys(&mut read_file(p)?)
+            .next()
+            .expect("no key")?;
+
+        let content = [&host];
+        add_host(ctx, host.clone(), c, k, content.iter().collect());
+    }
+    Ok(())
 }
 
 fn setup_logger(logdir: Option<String>) {
@@ -725,8 +747,8 @@ pub async fn main(
 ) -> io::Result<()> {
     setup_logger(logdir);
 
-    let mut ctx = NsCtx::new(port);
-    ctx.init_walk(&root)?;
+    let mut ctx = NsCtx::<VhostCtx>::new(port);
+    init_walk(&mut ctx, &root)?;
     let ctx = Arc::new(ctx);
 
     let addr = SocketAddr::new(IpAddr::V6(Ipv6Addr::UNSPECIFIED), port);

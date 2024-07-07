@@ -1,6 +1,26 @@
 use super::*;
 use tokio::io::BufReader;
-use tokio::runtime::Runtime;
+
+struct TestVhostCtx {
+    name: String,
+    rootdir: PathBuf,
+}
+
+impl Certificate for TestVhostCtx {
+    fn name(&self) -> &str {
+        &self.name
+    }
+
+    fn root(&self) -> &PathBuf {
+        &self.rootdir
+    }
+
+    fn get_cert(
+        &self,
+    ) -> (Vec<CertificateDer<'static>>, PrivateSec1KeyDer<'static>) {
+        unimplemented!();
+    }
+}
 
 #[test]
 fn test_vec_capacity() {
@@ -10,12 +30,15 @@ fn test_vec_capacity() {
     assert!(s.len() >= SIZE);
 }
 
-#[test]
-fn test_read_request() {
+#[tokio::test]
+async fn test_read_request() {
     const REQUEST: &str = "gemini://example.org/foo/bar/baz\r\n";
     let mut stream = BufReader::new(REQUEST.as_bytes());
-    Runtime::new().unwrap().block_on(async move {
-        let r = &REQUEST[..REQUEST.len() - 2];
-        assert_eq!(NsCtx::read_request(&mut stream).await.unwrap(), r);
-    });
+    let r = &REQUEST[..REQUEST.len() - 2];
+    assert_eq!(
+        NsCtx::<TestVhostCtx>::read_request(&mut stream)
+            .await
+            .unwrap(),
+        r
+    );
 }

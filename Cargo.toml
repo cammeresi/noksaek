@@ -7,6 +7,13 @@ name = "noksaek"
 version = "0.1.0"
 edition = "2021"
 
+[[bin]]
+name = "noksaek"
+test = false
+
+[lib]
+doctest = false
+
 [dev-dependencies]
 criterion = { version = "0.5.1", features = ["async", "async_tokio", "html_reports"] }
 libfuzzer-sys = "0.4"

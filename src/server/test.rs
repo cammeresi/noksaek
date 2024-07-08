@@ -17,6 +17,7 @@ const HOST: &str = "example.org";
 const CLIENT: SocketAddr =
     SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), DEFAULT_PORT);
 const TEST_TIMEOUT: Duration = Duration::from_secs(1);
+const SHITIFICATION: u32 = 5;
 const RC_OK: &str = "20 text/gemini";
 
 struct TestVhostCtx {
@@ -106,8 +107,8 @@ async fn test_read_request() {
     );
 }
 
-fn create_server() -> NsCtx<TestVhostCtx> {
-    let mut ctx = NsCtx::<TestVhostCtx>::new(DEFAULT_PORT, TEST_TIMEOUT);
+fn create_server(timeout: Duration) -> NsCtx<TestVhostCtx> {
+    let mut ctx = NsCtx::<TestVhostCtx>::new(DEFAULT_PORT, timeout);
     ctx.add_host(
         HOST.into(),
         TestVhostCtx {
@@ -119,12 +120,14 @@ fn create_server() -> NsCtx<TestVhostCtx> {
 }
 
 // returns (status line, rest of the bytes)
-async fn run_request(
-    ctx: &NsCtx<TestVhostCtx>, vhost: &TestVhostCtx, req: &str,
-) -> (String, Vec<u8>) {
+async fn run_request<R>(
+    ctx: &NsCtx<TestVhostCtx>, vhost: &TestVhostCtx, mut req: R,
+) -> (String, Vec<u8>)
+where
+    R: AsyncRead + Send + Unpin,
+{
     let mut out = Vec::new();
-    ctx.handle(vhost, &mut req.as_bytes(), &mut out, &CLIENT)
-        .await;
+    ctx.handle(vhost, &mut req, &mut out, &CLIENT).await;
     let mut status = String::new();
     let len = out
         .as_slice()
@@ -135,14 +138,27 @@ async fn run_request(
     (status, out)
 }
 
+async fn run_request_string(
+    ctx: &NsCtx<TestVhostCtx>, vhost: &TestVhostCtx, req: &str,
+) -> (String, Vec<u8>) {
+    run_request(ctx, vhost, req.as_bytes()).await
+}
+
+fn check_response(
+    expected_status: &str, expected_output: &str, actual_status: &str,
+    actual_output: Vec<u8>,
+) {
+    let len = actual_status.len();
+    assert_eq!(expected_status, &actual_status[..len - 2]);
+    assert_eq!("\r\n", &actual_status[len - 2..]);
+    assert_eq!(expected_output, String::from_utf8(actual_output).unwrap());
+}
+
 async fn test_request(req: &str, status: &str, output: &str) {
-    let ctx = create_server();
+    let ctx = create_server(TEST_TIMEOUT);
     let vhost = ctx.get_host(HOST);
-    let (s, o) = run_request(&ctx, vhost, req).await;
-    let len = s.len();
-    assert_eq!(status, &s[..len - 2]);
-    assert_eq!("\r\n", &s[len - 2..]);
-    assert_eq!(output, String::from_utf8(o).unwrap());
+    let (s, o) = run_request_string(&ctx, vhost, req).await;
+    check_response(status, output, &s, o);
 }
 
 #[tokio::test]
@@ -204,4 +220,17 @@ async fn test_delayed_reader() {
     assert_eq!(AAA, String::from_utf8(buf).unwrap());
     assert!(start.elapsed() > DELAY / 2);
     assert!(start.elapsed() < DELAY * 2);
+}
+
+#[tokio::test]
+async fn test_timeout() {
+    let ctx = create_server(TEST_TIMEOUT);
+    let vhost = ctx.get_host(HOST);
+
+    const REQ: &str = "gemini://example.org/\r\n";
+    let delay = TEST_TIMEOUT * SHITIFICATION;
+    let mut reader = DelayedReader::new(REQ.as_bytes(), delay);
+
+    let (status, out) = run_request(&ctx, vhost, &mut reader).await;
+    check_response(ERR_TIMED_OUT, "", &status, out);
 }

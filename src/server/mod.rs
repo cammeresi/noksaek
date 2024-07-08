@@ -39,7 +39,7 @@ pub const DEFAULT_PORT: u16 = 1965;
 const DEFAULT_FILENAME: &str = "index.gmi";
 const GPP_SUFFIX: &str = ".master.gmi";
 
-const TIMEOUT: Duration = Duration::from_secs(5);
+const DEFAULT_TIMEOUT: Duration = Duration::from_secs(5);
 const IP_RATE_LIMIT_MS: u64 = 100; // 10 per sec
 const GLOBAL_RATE_LIMIT_MS: u64 = 10; // 100 per sec
 
@@ -81,6 +81,7 @@ impl Certificate for VhostCtx {
 pub struct NsCtx<V> {
     port: u16,
     vhosts: HashMap<String, V>,
+    timeout: Duration,
     tag_re: Regex,
     img_re: Regex,
     ext_re: Regex,
@@ -100,10 +101,11 @@ impl<V> NsCtx<V>
 where
     V: Certificate,
 {
-    fn new(port: u16) -> Self {
+    fn new(port: u16, timeout: Duration) -> Self {
         let mut s = Self {
             port,
             vhosts: HashMap::new(),
+            timeout,
             tag_re: Regex::new(r"\[\[([^\[\]]+)\]\]").unwrap(),
             img_re: Regex::new(r"^=> ([^: ]+\.(gif|jpg|png|asc|pdf)) (.*)$")
                 .unwrap(),
@@ -561,7 +563,7 @@ where
 
         #[allow(clippy::never_loop)]
         let err = loop {
-            let res = timeout(TIMEOUT, Self::read_request(r)).await;
+            let res = timeout(self.timeout, Self::read_request(r)).await;
             let res = Self::flatten_result(res);
             break_error!(res);
 
@@ -571,9 +573,11 @@ where
             break_error!(res);
 
             let path = res.unwrap();
-            let res =
-                timeout(TIMEOUT, self.handle_request(vhost, w, peer, &path))
-                    .await;
+            let res = timeout(
+                self.timeout,
+                self.handle_request(vhost, w, peer, &path),
+            )
+            .await;
             let res = Self::flatten_result(res);
             break_error!(res);
 
@@ -631,7 +635,7 @@ where
     where
         S: AsyncRead + AsyncWrite + Send + Unpin,
     {
-        let res = match timeout(TIMEOUT, self.setup(stream)).await {
+        let res = match timeout(self.timeout, self.setup(stream)).await {
             Ok(x) => x,
             Err(e) => {
                 log::warn!("{} - timeout during setup: {:?}", peer, e);
@@ -757,7 +761,7 @@ pub async fn main(
 ) -> io::Result<()> {
     setup_logger(logdir);
 
-    let mut ctx = NsCtx::<VhostCtx>::new(port);
+    let mut ctx = NsCtx::<VhostCtx>::new(port, DEFAULT_TIMEOUT);
     init_walk(&mut ctx, &root)?;
     let ctx = Arc::new(ctx);
 

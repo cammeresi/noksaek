@@ -8,6 +8,7 @@ const ROOT: &str = "testroot";
 const HOST: &str = "example.org";
 const CLIENT: SocketAddr =
     SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), DEFAULT_PORT);
+const TEST_TIMEOUT: Duration = Duration::from_secs(1);
 const RC_OK: &str = "20 text/gemini";
 
 struct TestVhostCtx {
@@ -53,7 +54,7 @@ async fn test_read_request() {
 }
 
 fn create_server() -> NsCtx<TestVhostCtx> {
-    let mut ctx = NsCtx::<TestVhostCtx>::new(DEFAULT_PORT);
+    let mut ctx = NsCtx::<TestVhostCtx>::new(DEFAULT_PORT, TEST_TIMEOUT);
     ctx.add_host(
         HOST.into(),
         TestVhostCtx {

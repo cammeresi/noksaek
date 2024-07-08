@@ -1,4 +1,12 @@
+use std::marker::Unpin;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+use std::pin::Pin;
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc,
+};
+use std::task::{Context, Poll};
+use std::time::Instant;
 
 use tokio::io::BufReader;
 
@@ -29,6 +37,51 @@ impl Certificate for TestVhostCtx {
         &self,
     ) -> (Vec<CertificateDer<'static>>, PrivateSec1KeyDer<'static>) {
         unimplemented!();
+    }
+}
+
+struct DelayedReader<T> {
+    inner: T,
+    first: bool,
+    delay: Duration,
+    ready: Arc<AtomicBool>,
+}
+
+impl<T> DelayedReader<T> {
+    fn new(inner: T, delay: Duration) -> Self {
+        Self {
+            inner,
+            first: true,
+            delay,
+            ready: AtomicBool::new(false).into(),
+        }
+    }
+}
+
+impl<T> AsyncRead for DelayedReader<T>
+where
+    T: AsyncRead + Unpin,
+{
+    fn poll_read(
+        mut self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &mut ReadBuf<'_>,
+    ) -> Poll<std::io::Result<()>> {
+        if self.first {
+            self.first = false;
+            let waker = cx.waker().clone();
+            let delay = self.delay;
+            let ready = self.ready.clone();
+            tokio::task::spawn(async move {
+                tokio::time::sleep(delay).await;
+                ready.store(true, Ordering::Release);
+                waker.wake();
+            });
+            Poll::Pending
+        } else if !self.ready.load(Ordering::Acquire) {
+            // executor can re-poll before we say we're ready
+            Poll::Pending
+        } else {
+            T::poll_read(Pin::new(&mut self.inner), cx, buf)
+        }
     }
 }
 
@@ -138,4 +191,17 @@ async fn test_app() {
 async fn test_gpp() {
     const REQ: &str = "gemini://example.org/pre.gmi\r\n";
     test_request(REQ, RC_OK, "aaa bbb ccc\r\n").await;
+}
+
+#[tokio::test]
+async fn test_delayed_reader() {
+    const AAA: &str = "aaa";
+    const DELAY: Duration = TEST_TIMEOUT;
+    let mut reader = DelayedReader::new(AAA.as_bytes(), DELAY);
+    let mut buf = Vec::new();
+    let start = Instant::now();
+    reader.read_buf(&mut buf).await.unwrap();
+    assert_eq!(AAA, String::from_utf8(buf).unwrap());
+    assert!(start.elapsed() > DELAY / 2);
+    assert!(start.elapsed() < DELAY * 2);
 }

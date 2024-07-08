@@ -43,6 +43,10 @@ const TIMEOUT: Duration = Duration::from_secs(5);
 const IP_RATE_LIMIT_MS: u64 = 100; // 10 per sec
 const GLOBAL_RATE_LIMIT_MS: u64 = 10; // 100 per sec
 
+const ERR_BAD_REQUEST: &str = "59 Bad request";
+const ERR_NOT_FOUND: &str = "51 Not found";
+const ERR_TIMED_OUT: &str = "59 Bad request; too slow";
+
 pub trait Certificate {
     fn name(&self) -> &str;
     fn root(&self) -> &PathBuf;
@@ -614,9 +618,9 @@ where
         match e {
             NokError::IoError(ref e) => match e.kind() {
                 ErrorKind::UnexpectedEof => None,
-                ErrorKind::InvalidInput => Some("59 Bad request".into()),
-                ErrorKind::NotFound => Some("51 Not found".into()),
-                ErrorKind::TimedOut => Some("59 Bad request; too slow".into()),
+                ErrorKind::InvalidInput => Some(ERR_BAD_REQUEST.into()),
+                ErrorKind::NotFound => Some(ERR_NOT_FOUND.into()),
+                ErrorKind::TimedOut => Some(ERR_TIMED_OUT.into()),
                 _ => Some("50 Permanent failure".into()),
             },
             NokError::Redirect(url) => Some(format!("31 {}", url)),

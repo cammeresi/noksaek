@@ -8,7 +8,7 @@ const ROOT: &str = "testroot";
 const HOST: &str = "example.org";
 const CLIENT: SocketAddr =
     SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), DEFAULT_PORT);
-const RC_OK: &str = "20 text/gemini\r\n";
+const RC_OK: &str = "20 text/gemini";
 
 struct TestVhostCtx {
     name: String,
@@ -85,7 +85,9 @@ async fn test_request(req: &str, status: &str, output: &str) {
     let ctx = create_server();
     let vhost = ctx.get_host(HOST);
     let (s, o) = run_request(&ctx, vhost, req).await;
-    assert_eq!(status, s);
+    let len = s.len();
+    assert_eq!(status, &s[..len - 2]);
+    assert_eq!("\r\n", &s[len - 2..]);
     assert_eq!(output, String::from_utf8(o).unwrap());
 }
 
@@ -96,7 +98,7 @@ async fn test_root() {
 }
 
 #[tokio::test]
-async fn test_dir() {
+async fn test_directory() {
     const REQ: &str = "gemini://example.org/foo/\r\n";
     test_request(REQ, RC_OK, "bbbb\n").await;
 }
@@ -110,7 +112,19 @@ async fn test_file() {
 #[tokio::test]
 async fn test_redirect() {
     const REQ: &str = "gemini://example.org/foo\r\n";
-    test_request(REQ, "31 /foo/\r\n", "").await;
+    test_request(REQ, "31 /foo/", "").await;
+}
+
+#[tokio::test]
+async fn test_err_not_found() {
+    const REQ: &str = "gemini://example.org/fooo\r\n";
+    test_request(REQ, ERR_NOT_FOUND, "").await;
+}
+
+#[tokio::test]
+async fn test_err_bad_request() {
+    const REQ: &str = "asdf";
+    test_request(REQ, ERR_BAD_REQUEST, "").await;
 }
 
 #[tokio::test]

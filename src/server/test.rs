@@ -25,7 +25,7 @@ struct TestVhostCtx {
     rootdir: PathBuf,
 }
 
-impl Certificate for TestVhostCtx {
+impl Vhost for TestVhostCtx {
     fn name(&self) -> &str {
         &self.name
     }

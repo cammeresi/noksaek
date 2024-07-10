@@ -47,7 +47,7 @@ const ERR_BAD_REQUEST: &str = "59 Bad request";
 const ERR_NOT_FOUND: &str = "51 Not found";
 const ERR_TIMED_OUT: &str = "59 Bad request; too slow";
 
-pub trait Certificate {
+pub trait Vhost {
     fn name(&self) -> &str;
     fn root(&self) -> &PathBuf;
     fn get_cert(
@@ -62,7 +62,7 @@ pub struct VhostCtx {
     rootdir: PathBuf,
 }
 
-impl Certificate for VhostCtx {
+impl Vhost for VhostCtx {
     fn name(&self) -> &str {
         &self.name
     }
@@ -99,7 +99,7 @@ impl<V> Debug for NsCtx<V> {
 
 impl<V> NsCtx<V>
 where
-    V: Certificate,
+    V: Vhost,
 {
     fn new(port: u16, timeout: Duration) -> Self {
         let mut s = Self {

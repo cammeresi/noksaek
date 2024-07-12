@@ -38,6 +38,7 @@ use linker_set::*;
 pub const DEFAULT_PORT: u16 = 1965;
 const DEFAULT_FILENAME: &str = "index.gmi";
 const GPP_SUFFIX: &str = ".master.gmi";
+const GPP_KEY_ERROR: &str = "[KEY ERROR]";
 
 const DEFAULT_TIMEOUT: Duration = Duration::from_secs(5);
 const IP_RATE_LIMIT_MS: u64 = 100; // 10 per sec
@@ -447,6 +448,8 @@ where
                 let key = &key[2..key.len() - 2];
                 if let Some(val) = data.get(key) {
                     ln.replace_range(m.range(), val);
+                } else {
+                    ln.replace_range(m.range(), GPP_KEY_ERROR);
                 }
             }
             if let Some(m) = self.img_re.captures(&ln) {

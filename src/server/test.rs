@@ -206,7 +206,7 @@ async fn test_app() {
 #[tokio::test]
 async fn test_gpp() {
     const REQ: &str = "gemini://example.org/pre.gmi\r\n";
-    test_request(REQ, RC_OK, "aaa bbb ccc\r\n").await;
+    test_request(REQ, RC_OK, "aaa bbb ccc [KEY ERROR]\r\n").await;
 }
 
 #[tokio::test]

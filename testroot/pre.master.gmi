@@ -1,1 +1,1 @@
-aaa [[var]] ccc
+aaa [[var]] ccc [[nope]]

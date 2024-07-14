@@ -39,6 +39,7 @@ pub const DEFAULT_PORT: u16 = 1965;
 const DEFAULT_FILENAME: &str = "index.gmi";
 const GPP_SUFFIX: &str = ".master.gmi";
 const GPP_KEY_ERROR: &str = "[KEY ERROR]";
+const BAN_SUFFIXES: &[&str] = &[GPP_SUFFIX, ".master.data"];
 
 const DEFAULT_TIMEOUT: Duration = Duration::from_secs(5);
 const IP_RATE_LIMIT_MS: u64 = 100; // 10 per sec
@@ -255,7 +256,20 @@ where
         false
     }
 
+    fn test_ban(name: &str) -> bool {
+        for ban in BAN_SUFFIXES {
+            if name.ends_with(ban) {
+                return false;
+            }
+        }
+        true
+    }
+
     async fn test_gmi_file(&self, fs_path: &mut PathBuf, name: &str) -> bool {
+        if !Self::test_ban(name) {
+            return false;
+        }
+
         fs_path.push(name);
         if let Ok(f) = fs::metadata(&fs_path).await {
             if f.is_file() {

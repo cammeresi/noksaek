@@ -210,6 +210,18 @@ async fn test_gpp() {
 }
 
 #[tokio::test]
+async fn test_err_master() {
+    const REQ: &str = "gemini://example.org/pre.master.gmi\r\n";
+    test_request(REQ, ERR_NOT_FOUND, "").await;
+}
+
+#[tokio::test]
+async fn test_err_data() {
+    const REQ: &str = "gemini://example.org/pre.master.data\r\n";
+    test_request(REQ, ERR_NOT_FOUND, "").await;
+}
+
+#[tokio::test]
 async fn test_delayed_reader() {
     const AAA: &str = "aaa";
     const DELAY: Duration = TEST_TIMEOUT;

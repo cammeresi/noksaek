@@ -26,7 +26,7 @@ harness = false
 async-trait = "0.1.79"
 clap = { version = "4.5.3", features = ["derive"] }
 flexi_logger = "0.28.0"
-handlebars = "5.1.2"
+handlebars = "6.0.0"
 libc = "0.2.153"
 linker-set = "0.3.0"
 log = "0.4.21"

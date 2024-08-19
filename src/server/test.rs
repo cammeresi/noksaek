@@ -1,6 +1,6 @@
 use std::marker::Unpin;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
-use std::pin::Pin;
+use std::pin::{pin, Pin};
 use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc,
@@ -43,8 +43,8 @@ impl Vhost for TestVhostCtx {
 
 struct DelayedReader<T> {
     inner: T,
-    first: bool,
     delay: Duration,
+    first: bool,
     ready: Arc<AtomicBool>,
 }
 
@@ -52,9 +52,9 @@ impl<T> DelayedReader<T> {
     fn new(inner: T, delay: Duration) -> Self {
         Self {
             inner,
-            first: true,
             delay,
-            ready: AtomicBool::new(false).into(),
+            first: true,
+            ready: Default::default(),
         }
     }
 }
@@ -81,7 +81,7 @@ where
             // executor can re-poll before we say we're ready
             Poll::Pending
         } else {
-            T::poll_read(Pin::new(&mut self.inner), cx, buf)
+            pin!(&mut self.inner).poll_read(cx, buf)
         }
     }
 }

@@ -22,6 +22,7 @@ macro_rules! register_application {
 
 pub mod hello;
 pub mod random;
+pub mod version;
 
 #[async_trait]
 pub trait Application {

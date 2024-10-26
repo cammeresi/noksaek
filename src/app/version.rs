@@ -5,11 +5,13 @@ use tokio::io::AsyncWriteExt;
 
 use super::*;
 
-struct Version;
-
 const TEMPLATE_NAME: &str = "app::version";
 const TEMPLATE_TEXT: &str = "# Version\r\n\
                              {{git-hash}}\r\n";
+
+register_application!("version", Version);
+
+struct Version;
 
 impl Version {
     fn new() -> Self {
@@ -47,10 +49,4 @@ impl Application for Version {
         stream.write_all(bytes).await?;
         Ok(bytes.len().try_into().unwrap_or_default())
     }
-}
-
-register_application!(register);
-
-fn register() -> ResultApplication {
-    Ok((String::from("version"), Box::new(Version::new())))
 }

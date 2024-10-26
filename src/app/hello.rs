@@ -2,6 +2,8 @@ use tokio::io::AsyncWriteExt;
 
 use super::*;
 
+register_application!("hello", Hello);
+
 struct Hello;
 
 impl Hello {
@@ -25,10 +27,4 @@ impl Application for Hello {
         stream.write_all(bytes).await?;
         Ok(bytes.len().try_into().unwrap_or_default())
     }
-}
-
-register_application!(register);
-
-fn register() -> ResultApplication {
-    Ok((String::from("hello"), Box::new(Hello::new())))
 }

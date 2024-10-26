@@ -15,8 +15,6 @@ const TEMPLATE_TEXT: &str = "# Random data!\r\n\
                              * u64 - {{u64-dec}} - {{u64-hex}}\r\n\
                              ```\r\n";
 
-struct Random;
-
 macro_rules! random {
     ($rng:ident, $map:ident, $type:ty, $hex:literal) => {{
         let x = $rng.gen::<$type>();
@@ -24,6 +22,10 @@ macro_rules! random {
         $map.insert(concat!(stringify!($type), "-hex"), format!($hex, x));
     }};
 }
+
+register_application!("random", Random);
+
+struct Random;
 
 impl Random {
     fn new() -> Self {
@@ -70,10 +72,4 @@ impl Application for Random {
         stream.write_all(bytes).await?;
         Ok(bytes.len().try_into().unwrap_or_default())
     }
-}
-
-register_application!(register);
-
-fn register() -> ResultApplication {
-    Ok((String::from("random"), Box::new(Random::new())))
 }

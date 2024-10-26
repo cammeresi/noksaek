@@ -14,9 +14,17 @@ pub type RegisterApplication = fn() -> ResultApplication;
 set_declare!(apps, RegisterApplication);
 
 macro_rules! register_application {
-    ($func:ident) => {
-        #[set_entry(apps)]
-        static __REGISTER_APP__: RegisterApplication = $func;
+    ($name:literal, $ty:ident) => {
+        paste::paste! {
+            #[allow(non_snake_case)]
+            fn [<__register_ $ty __>]() -> ResultApplication {
+                Ok((String::from($name), Box::new($ty::new())))
+            }
+
+            #[set_entry(apps)]
+            static __REGISTER_APP__: RegisterApplication =
+                [<__register_ $ty __>];
+        }
     };
 }
 

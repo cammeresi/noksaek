@@ -1,11 +1,8 @@
 use std::marker::Unpin;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::pin::{pin, Pin};
-use std::sync::{
-    atomic::{AtomicBool, Ordering},
-    Arc,
-};
-use std::task::{Context, Poll};
+use std::sync::{Arc, Mutex};
+use std::task::{Context, Poll, Waker};
 use std::time::Instant;
 
 use tokio::io::BufReader;
@@ -41,20 +38,44 @@ impl Vhost for TestVhostCtx {
     }
 }
 
+#[derive(Default)]
+struct DelayedWait {
+    ready: bool,
+    waker: Option<Waker>,
+}
+
+impl DelayedWait {
+    fn new(delay: Duration) -> Arc<Mutex<Self>> {
+        let new = Arc::new(Self::default().into());
+        Self::start(&new, delay);
+        new
+    }
+
+    fn start(wait: &Arc<Mutex<Self>>, delay: Duration) {
+        let wait = Arc::clone(wait);
+        tokio::task::spawn(Self::task(wait, delay));
+    }
+
+    async fn task(wait: Arc<Mutex<Self>>, delay: Duration) {
+        tokio::time::sleep(delay).await;
+        let mut wait = wait.lock().unwrap();
+        wait.ready = true;
+        if let Some(waker) = wait.waker.take() {
+            waker.wake();
+        }
+    }
+}
+
 struct DelayedReader<T> {
     inner: T,
-    delay: Duration,
-    first: bool,
-    ready: Arc<AtomicBool>,
+    wait: Arc<Mutex<DelayedWait>>,
 }
 
 impl<T> DelayedReader<T> {
     fn new(inner: T, delay: Duration) -> Self {
         Self {
             inner,
-            delay,
-            first: true,
-            ready: Default::default(),
+            wait: DelayedWait::new(delay),
         }
     }
 }
@@ -66,21 +87,13 @@ where
     fn poll_read(
         mut self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &mut ReadBuf<'_>,
     ) -> Poll<std::io::Result<()>> {
-        if self.first {
-            self.first = false;
-            let waker = cx.waker().clone();
-            let delay = self.delay;
-            let ready = self.ready.clone();
-            tokio::task::spawn(async move {
-                tokio::time::sleep(delay).await;
-                ready.store(true, Ordering::Release);
-                waker.wake();
-            });
-            Poll::Pending
-        } else if !self.ready.load(Ordering::Acquire) {
+        let mut wait = self.wait.lock().unwrap();
+        if !wait.ready {
             // executor can re-poll before we say we're ready
+            wait.waker = Some(cx.waker().clone());
             Poll::Pending
         } else {
+            drop(wait);
             pin!(&mut self.inner).poll_read(cx, buf)
         }
     }

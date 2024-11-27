@@ -28,7 +28,6 @@ use tokio::net::TcpListener;
 use tokio::time::timeout;
 use tokio_rustls::server::TlsStream;
 use tokio_rustls::LazyConfigAcceptor;
-use tokio_utils::MultiRateLimiter;
 use url::Url;
 
 use crate::app::*;
@@ -42,8 +41,8 @@ const GPP_KEY_ERROR: &str = "[KEY ERROR]";
 const BAN_SUFFIXES: &[&str] = &[GPP_SUFFIX, ".master.data"];
 
 const DEFAULT_TIMEOUT: Duration = Duration::from_secs(5);
-const IP_RATE_LIMIT_MS: u64 = 100; // 10 per sec
-const GLOBAL_RATE_LIMIT_MS: u64 = 10; // 100 per sec
+const IP_RATE_LIMIT: Duration = Duration::from_millis(100); // 10 per sec
+const GLOBAL_RATE_LIMIT: Duration = Duration::from_millis(10); // 100 per sec
 
 const ERR_BAD_REQUEST: &str = "59 Bad request";
 const ERR_NOT_FOUND: &str = "51 Not found";
@@ -87,8 +86,8 @@ pub struct NsCtx<V> {
     tag_re: Regex,
     img_re: Regex,
     ext_re: Regex,
-    ip_limit: MultiRateLimiter<Ipv6Addr>,
-    global_limit: MultiRateLimiter<()>,
+    ip_limit: MultiTokenBucket<Ipv6Addr>,
+    global_limit: TokenBucket,
     apps: HashMap<String, Box<dyn Application + Send + Sync>>,
     tmpl: Handlebars<'static>,
 }
@@ -112,12 +111,8 @@ where
             img_re: Regex::new(r"^=> ([^: ]+\.(gif|jpg|png|asc|pdf)) (.*)$")
                 .unwrap(),
             ext_re: Regex::new(r"^(.*)\.([^\.]+)$").unwrap(),
-            ip_limit: MultiRateLimiter::new(Duration::from_millis(
-                IP_RATE_LIMIT_MS,
-            )),
-            global_limit: MultiRateLimiter::new(Duration::from_millis(
-                GLOBAL_RATE_LIMIT_MS,
-            )),
+            ip_limit: MultiTokenBucket::new(IP_RATE_LIMIT, 1),
+            global_limit: TokenBucket::new(GLOBAL_RATE_LIMIT, 1),
             apps: HashMap::new(),
             tmpl: Handlebars::new(),
         };
@@ -678,12 +673,9 @@ where
             SocketAddr::V4(_) => unimplemented!(),
             SocketAddr::V6(addr) => *addr.ip(),
         };
-        self.ip_limit
-            .throttle(ipaddr, move || {
-                self.global_limit
-                    .throttle((), move || self.accepted(stream, peer))
-            })
-            .await;
+        self.ip_limit.acquire(ipaddr).await;
+        self.global_limit.acquire().await;
+        self.accepted(stream, peer).await;
     }
 
     fn add_host(&mut self, host: String, vhost: V) {

@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use dashmap::DashMap;
 use tokio::sync::Semaphore;
-use tokio::time::{interval, Duration, MissedTickBehavior};
+use tokio::time::{Duration, MissedTickBehavior, interval};
 
 pub struct MultiTokenBucket<T> {
     sems: Arc<DashMap<T, Semaphore>>,

@@ -18,7 +18,7 @@ impl Version {
         Version
     }
 
-    fn gen(&self, tmpl: &Handlebars) -> io::Result<String> {
+    fn generate(&self, tmpl: &Handlebars) -> io::Result<String> {
         let mut map = HashMap::new();
         map.insert("git-hash", env!("BUILD_GIT_HASH").to_string());
         match tmpl.render(TEMPLATE_NAME, &map) {
@@ -44,7 +44,7 @@ impl Application for Version {
         mut stream: Box<&mut (dyn AsyncWrite + Send + Unpin)>,
         _peer: &SocketAddr, tmpl: &Handlebars,
     ) -> io::Result<u64> {
-        let out = self.gen(tmpl)?;
+        let out = self.generate(tmpl)?;
         let bytes = out.as_bytes();
         stream.write_all(bytes).await?;
         Ok(bytes.len().try_into().unwrap_or_default())

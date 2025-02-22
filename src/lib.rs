@@ -25,8 +25,8 @@ enum NokError {
 impl std::fmt::Display for NokError {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), std::fmt::Error> {
         match self {
-            Self::IoError(ref e) => std::fmt::Display::fmt(e, f),
-            Self::Redirect(ref url) => write!(f, "Redirect({})", url),
+            Self::IoError(e) => std::fmt::Display::fmt(e, f),
+            Self::Redirect(url) => write!(f, "Redirect({})", url),
         }
     }
 }

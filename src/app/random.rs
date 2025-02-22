@@ -17,7 +17,7 @@ const TEMPLATE_TEXT: &str = "# Random data!\r\n\
 
 macro_rules! random {
     ($rng:ident, $map:ident, $type:ty, $hex:literal) => {{
-        let x = $rng.gen::<$type>();
+        let x = $rng.r#gen::<$type>();
         $map.insert(concat!(stringify!($type), "-dec"), format!("{:20}", x));
         $map.insert(concat!(stringify!($type), "-hex"), format!($hex, x));
     }};
@@ -42,7 +42,7 @@ impl Random {
         map
     }
 
-    fn gen(&self, tmpl: &Handlebars) -> io::Result<String> {
+    fn generate(&self, tmpl: &Handlebars) -> io::Result<String> {
         let map = Self::data();
         match tmpl.render(TEMPLATE_NAME, &map) {
             Ok(s) => Ok(s),
@@ -67,7 +67,7 @@ impl Application for Random {
         mut stream: Box<&mut (dyn AsyncWrite + Send + Unpin)>,
         _peer: &SocketAddr, tmpl: &Handlebars,
     ) -> io::Result<u64> {
-        let out = self.gen(tmpl)?;
+        let out = self.generate(tmpl)?;
         let bytes = out.as_bytes();
         stream.write_all(bytes).await?;
         Ok(bytes.len().try_into().unwrap_or_default())

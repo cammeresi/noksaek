@@ -1,4 +1,4 @@
-use criterion::{criterion_group, criterion_main, Criterion};
+use criterion::{Criterion, criterion_group, criterion_main};
 
 fn bench_read_request(c: &mut Criterion) {
     use noksaek::server::{NsCtx, VhostCtx};

@@ -21,13 +21,13 @@ use rustls::{
 use rustls_pemfile::{certs, ec_private_keys};
 use tokio::fs::{self, File};
 use tokio::io::{
-    split, AsyncBufReadExt, AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt,
-    BufReader, ErrorKind, ReadBuf,
+    AsyncBufReadExt, AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt,
+    BufReader, ErrorKind, ReadBuf, split,
 };
 use tokio::net::TcpListener;
 use tokio::time::timeout;
-use tokio_rustls::server::TlsStream;
 use tokio_rustls::LazyConfigAcceptor;
+use tokio_rustls::server::TlsStream;
 use url::Url;
 
 use crate::app::*;
@@ -632,7 +632,7 @@ where
 
     fn error_message(e: &NokError) -> Option<String> {
         match e {
-            NokError::IoError(ref e) => match e.kind() {
+            NokError::IoError(e) => match e.kind() {
                 ErrorKind::UnexpectedEof => None,
                 ErrorKind::InvalidInput => Some(ERR_BAD_REQUEST.into()),
                 ErrorKind::NotFound => Some(ERR_NOT_FOUND.into()),
@@ -743,8 +743,8 @@ fn init_walk(ctx: &mut NsCtx<VhostCtx>, root: &str) -> io::Result<()> {
 
 fn setup_logger(logdir: Option<String>) {
     use flexi_logger::{
-        opt_format, AdaptiveFormat, Cleanup, Criterion, FileSpec, Logger,
-        Naming,
+        AdaptiveFormat, Cleanup, Criterion, FileSpec, Logger, Naming,
+        opt_format,
     };
 
     let mut log = Logger::try_with_str("info").unwrap();

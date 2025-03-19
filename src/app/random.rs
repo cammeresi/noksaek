@@ -17,7 +17,7 @@ const TEMPLATE_TEXT: &str = "# Random data!\r\n\
 
 macro_rules! random {
     ($rng:ident, $map:ident, $type:ty, $hex:literal) => {{
-        let x = $rng.r#gen::<$type>();
+        let x = $rng.random::<$type>();
         $map.insert(concat!(stringify!($type), "-dec"), format!("{:20}", x));
         $map.insert(concat!(stringify!($type), "-hex"), format!($hex, x));
     }};
@@ -33,7 +33,7 @@ impl Random {
     }
 
     fn data() -> HashMap<&'static str, String> {
-        let mut rng = rand::thread_rng();
+        let mut rng = rand::rng();
         let mut map = HashMap::new();
         random!(rng, map, u8, "{:02x}");
         random!(rng, map, u16, "{:04x}");

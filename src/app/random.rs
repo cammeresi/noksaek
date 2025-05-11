@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::io::{Error, ErrorKind};
+use std::io::Error;
 
 use rand::Rng;
 use tokio::io::AsyncWriteExt;
@@ -46,10 +46,7 @@ impl Random {
         let map = Self::data();
         match tmpl.render(TEMPLATE_NAME, &map) {
             Ok(s) => Ok(s),
-            Err(e) => Err(Error::new(
-                ErrorKind::Other,
-                format!("template error: {:?}", e),
-            )),
+            Err(e) => Err(Error::other(format!("template error: {e:?}"))),
         }
     }
 }

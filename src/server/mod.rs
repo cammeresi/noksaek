@@ -124,8 +124,8 @@ where
         for app in set!(apps) {
             let (name, mut app) = app().expect("app creation failure");
             app.init(&mut self.tmpl)
-                .unwrap_or_else(|_| panic!("app \"{}\" init failed", name));
-            log::info!("registered app \"{}\"", name);
+                .unwrap_or_else(|_| panic!("app \"{name}\" init failed"));
+            log::info!("registered app \"{name}\"");
             self.apps.insert(name, app);
         }
     }
@@ -241,7 +241,7 @@ where
     async fn test_application(
         &self, fs_path: &mut PathBuf, name: &str,
     ) -> bool {
-        fs_path.push(format!("{}.app", name));
+        fs_path.push(format!("{name}.app"));
         if let Ok(f) = fs::metadata(&fs_path).await {
             if f.is_file() {
                 return true;
@@ -381,7 +381,7 @@ where
             }
         }
 
-        log::debug!("load data: {:?} -> {:?}", path, data);
+        log::debug!("load data: {path:?} -> {data:?}");
         Ok(data)
     }
 
@@ -406,7 +406,7 @@ where
 
         let sz = meta.len();
         if sz < 1024 {
-            format!(" [{} bytes]", sz)
+            format!(" [{sz} bytes]")
         } else if sz < 1024 * 1024 {
             format!(" [{} KB]", sz / 1024)
         } else if sz < 10 * 1024 * 1024 {
@@ -501,11 +501,11 @@ where
     {
         let app = fs::read_to_string(&path).await?;
         let app = app.trim();
-        log::info!("running app {} {:?}", app, args);
+        log::info!("running app {app} {args:?}");
         let Some(app) = self.apps.get(app) else {
             return Err(Error::new(
                 ErrorKind::NotFound,
-                format!("unregistered app \"{}\"", app),
+                format!("unregistered app \"{app}\""),
             ));
         };
         let stream = Box::new(stream as &mut (dyn AsyncWrite + Send + Unpin));
@@ -520,7 +520,7 @@ where
         W: AsyncWrite + Send + Unpin,
     {
         let (path, args) = self.resolve_request(vhost, path).await?;
-        log::debug!("resolved: path {:?}, args {:?}", path, args);
+        log::debug!("resolved: path {path:?}, args {args:?}");
 
         let mime = mime_guess::from_path(&path)
             .first()
@@ -536,9 +536,9 @@ where
             }
         }
 
-        log::debug!("mime type: {}", mime);
+        log::debug!("mime type: {mime}");
         stream
-            .write_all(format!("20 {}\r\n", mime).as_bytes())
+            .write_all(format!("20 {mime}\r\n").as_bytes())
             .await?;
 
         let sent = if app {
@@ -580,7 +580,7 @@ where
             break_error!(res);
 
             request = Some(res.unwrap());
-            log::debug!("request: {:?}", request);
+            log::debug!("request: {request:?}");
             let res = self.parse_request(vhost, request.as_ref().unwrap());
             break_error!(res);
 
@@ -611,22 +611,15 @@ where
         };
 
         if request.is_none() {
-            log::info!("{} - [no request] - {}", peer, msg);
+            log::info!("{peer} - [no request] - {msg}");
         } else if mime.is_none() || sent.is_none() {
             let request = request.unwrap();
-            log::info!("{} - {} - {}", peer, request, msg);
+            log::info!("{peer} - {request} - {msg}");
         } else {
             let request = request.unwrap();
             let mime = mime.unwrap();
             let sent = sent.unwrap();
-            log::info!(
-                "{} - {} - {} - {} - {} bytes",
-                peer,
-                request,
-                msg,
-                mime,
-                sent
-            );
+            log::info!("{peer} - {request} - {msg} - {mime} - {sent} bytes");
         }
     }
 
@@ -639,7 +632,7 @@ where
                 ErrorKind::TimedOut => Some(ERR_TIMED_OUT.into()),
                 _ => Some("50 Permanent failure".into()),
             },
-            NokError::Redirect(url) => Some(format!("31 {}", url)),
+            NokError::Redirect(url) => Some(format!("31 {url}")),
         }
     }
 
@@ -650,14 +643,14 @@ where
         let res = match timeout(self.timeout, self.setup(stream)).await {
             Ok(x) => x,
             Err(e) => {
-                log::warn!("{} - timeout during setup: {:?}", peer, e);
+                log::warn!("{peer} - timeout during setup: {e:?}");
                 return;
             }
         };
         let (stream, vhost) = match res {
             Ok((stream, vhost)) => (stream, vhost),
             Err(e) => {
-                log::warn!("{} - failed during setup: {:?}", peer, e);
+                log::warn!("{peer} - failed during setup: {e:?}");
                 return;
             }
         };
@@ -697,7 +690,7 @@ fn add_host(
     certs: Vec<CertificateDer<'static>>, key: PrivateSec1KeyDer<'static>,
     root: PathBuf,
 ) {
-    log::info!("adding vhost {}", host);
+    log::info!("adding vhost {host}");
     ctx.add_host(
         host.clone(),
         VhostCtx {
@@ -776,7 +769,7 @@ pub async fn main(
 
     let addr = SocketAddr::new(IpAddr::V6(Ipv6Addr::UNSPECIFIED), port);
     let listener = TcpListener::bind(addr).await.unwrap();
-    log::info!("bound to {}", addr);
+    log::info!("bound to {addr}");
 
     let mut uid = None;
     if let Some(ref username) = setuid {

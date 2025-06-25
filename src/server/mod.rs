@@ -208,14 +208,12 @@ where
                 Error::new(ErrorKind::InvalidInput, "url scheme").into()
             );
         }
-        if let Some(host) = url.host_str() {
-            if host != vhost.name() {
-                return Err(Error::new(
-                    ErrorKind::InvalidInput,
-                    "wrong hostname",
-                )
-                .into());
-            }
+        if let Some(host) = url.host_str()
+            && host != vhost.name()
+        {
+            return Err(
+                Error::new(ErrorKind::InvalidInput, "wrong hostname").into()
+            );
         }
         let port = url.port().unwrap_or(DEFAULT_PORT);
         if port != self.port {
@@ -242,10 +240,10 @@ where
         &self, fs_path: &mut PathBuf, name: &str,
     ) -> bool {
         fs_path.push(format!("{name}.app"));
-        if let Ok(f) = fs::metadata(&fs_path).await {
-            if f.is_file() {
-                return true;
-            }
+        if let Ok(f) = fs::metadata(&fs_path).await
+            && f.is_file()
+        {
+            return true;
         }
         fs_path.pop();
         false
@@ -266,10 +264,10 @@ where
         }
 
         fs_path.push(name);
-        if let Ok(f) = fs::metadata(&fs_path).await {
-            if f.is_file() {
-                return true;
-            }
+        if let Ok(f) = fs::metadata(&fs_path).await
+            && f.is_file()
+        {
+            return true;
         }
         fs_path.pop();
 
@@ -277,10 +275,10 @@ where
             let mut name = name.to_owned();
             name.replace_range(name.len() - 4.., GPP_SUFFIX);
             fs_path.push(&name);
-            if let Ok(f) = fs::metadata(&fs_path).await {
-                if f.is_file() {
-                    return true;
-                }
+            if let Ok(f) = fs::metadata(&fs_path).await
+                && f.is_file()
+            {
+                return true;
             }
             fs_path.pop();
         }
@@ -529,11 +527,11 @@ where
 
         const GEMTEXT: &str = "text/gemini";
         let mut app = false;
-        if let Some(ext) = path.extension() {
-            if ext.as_encoded_bytes() == "app".as_bytes() {
-                app = true;
-                mime = GEMTEXT;
-            }
+        if let Some(ext) = path.extension()
+            && ext.as_encoded_bytes() == "app".as_bytes()
+        {
+            app = true;
+            mime = GEMTEXT;
         }
 
         log::debug!("mime type: {mime}");
@@ -610,16 +608,18 @@ where
             "20".into()
         };
 
-        if request.is_none() {
-            log::info!("{peer} - [no request] - {msg}");
-        } else if mime.is_none() || sent.is_none() {
-            let request = request.unwrap();
-            log::info!("{peer} - {request} - {msg}");
+        if let Some(request) = request {
+            if let Some(mime) = mime
+                && let Some(sent) = sent
+            {
+                log::info!(
+                    "{peer} - {request} - {msg} - {mime} - {sent} bytes"
+                );
+            } else {
+                log::info!("{peer} - {request} - {msg}");
+            }
         } else {
-            let request = request.unwrap();
-            let mime = mime.unwrap();
-            let sent = sent.unwrap();
-            log::info!("{peer} - {request} - {msg} - {mime} - {sent} bytes");
+            log::info!("{peer} - [no request] - {msg}");
         }
     }
 

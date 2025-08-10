@@ -122,7 +122,7 @@ where
 
     fn register_apps(&mut self) {
         for app in set!(apps) {
-            let (name, mut app) = app().expect("app creation failure");
+            let (name, mut app) = app.start().expect("app creation failure");
             app.init(&mut self.tmpl)
                 .unwrap_or_else(|_| panic!("app \"{name}\" init failed"));
             log::info!("registered app \"{name}\"");

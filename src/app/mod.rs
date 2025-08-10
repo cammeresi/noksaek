@@ -9,21 +9,23 @@ use linker_set::*;
 
 pub type BoxApplication = Box<dyn Application + Send + Sync>;
 pub type ResultApplication = io::Result<(String, BoxApplication)>;
-pub type RegisterApplication = fn() -> ResultApplication;
 
-set_declare!(apps, RegisterApplication);
+set_declare!(apps, &'static dyn RegisterApplication);
 
 macro_rules! register_application {
     ($name:literal, $ty:ident) => {
         paste::paste! {
-            #[allow(non_snake_case)]
-            fn [<__register_ $ty __>]() -> ResultApplication {
-                Ok((String::from($name), Box::new($ty::new())))
+            struct [<Register $ty>];
+
+            impl RegisterApplication for [<Register $ty>] {
+                fn start(&self) -> ResultApplication {
+                    Ok((String::from($name), Box::new($ty::new())))
+                }
             }
 
             #[set_entry(apps)]
-            static __REGISTER_APP__: RegisterApplication =
-                [<__register_ $ty __>];
+            static __REGISTER_APP__: &'static dyn RegisterApplication =
+                &[<Register $ty>];
         }
     };
 }
@@ -31,6 +33,10 @@ macro_rules! register_application {
 pub mod hello;
 pub mod random;
 pub mod version;
+
+pub trait RegisterApplication: Sync {
+    fn start(&self) -> ResultApplication;
+}
 
 #[async_trait]
 pub trait Application {

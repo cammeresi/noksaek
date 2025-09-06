@@ -12,6 +12,10 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
+use flexi_logger::{
+    AdaptiveFormat, Cleanup, Criterion, FileSpec, Logger, LoggerHandle, Naming,
+    opt_format,
+};
 use handlebars::Handlebars;
 use regex::Regex;
 use rustls::{
@@ -734,13 +738,8 @@ fn init_walk(ctx: &mut NsCtx<VhostCtx>, root: &str) -> io::Result<()> {
     Ok(())
 }
 
-fn setup_logger(logdir: Option<String>) {
-    use flexi_logger::{
-        AdaptiveFormat, Cleanup, Criterion, FileSpec, Logger, Naming,
-        opt_format,
-    };
-
-    let mut log = Logger::try_with_str("info").unwrap();
+fn init_logger(logdir: Option<String>) -> LoggerHandle {
+    let mut log = Logger::try_with_str("info").expect("invalid log spec");
     if let Some(dir) = logdir {
         log = log.log_to_file(
             FileSpec::default().directory(dir).basename("noksaek"),
@@ -751,17 +750,18 @@ fn setup_logger(logdir: Option<String>) {
         Naming::Numbers,
         Cleanup::KeepLogFiles(10),
     )
-    .adaptive_format_for_stderr(AdaptiveFormat::Opt)
     .format_for_files(opt_format)
+    .adaptive_format_for_stdout(AdaptiveFormat::Opt)
+    .adaptive_format_for_stderr(AdaptiveFormat::Opt)
     .start()
-    .unwrap();
+    .expect("couldn't set up logger")
 }
 
 pub async fn main(
     port: u16, root: String, logdir: Option<String>, setuid: Option<String>,
     chroot: bool,
 ) -> io::Result<()> {
-    setup_logger(logdir);
+    let _logger = init_logger(logdir);
 
     let mut ctx = NsCtx::<VhostCtx>::new(port, DEFAULT_TIMEOUT);
     init_walk(&mut ctx, &root)?;

@@ -6,7 +6,7 @@ use tokio::sync::Semaphore;
 use tokio::time::{Duration, MissedTickBehavior, interval};
 
 pub struct MultiTokenBucket<T> {
-    sems: Arc<DashMap<T, Semaphore>>,
+    sems: Arc<DashMap<T, Arc<Semaphore>>>,
     capacity: usize,
     jh: tokio::task::JoinHandle<()>,
 }
@@ -23,7 +23,8 @@ where
     }
 
     async fn run(
-        sems: Arc<DashMap<T, Semaphore>>, duration: Duration, capacity: usize,
+        sems: Arc<DashMap<T, Arc<Semaphore>>>, duration: Duration,
+        capacity: usize,
     ) {
         let mut interval = interval(duration);
         interval.set_missed_tick_behavior(MissedTickBehavior::Burst);
@@ -40,8 +41,12 @@ where
     }
 
     pub async fn acquire(&self, k: T) {
-        let entry = self.sems.entry(k);
-        let sem = entry.or_insert_with(|| Semaphore::new(self.capacity));
+        let sem = {
+            let entry = self.sems.entry(k);
+            let sem =
+                entry.or_insert_with(|| Semaphore::new(self.capacity).into());
+            Arc::clone(&sem)
+        };
 
         // deliberately leak and refill separately
         sem.acquire().await.unwrap().forget();
@@ -67,5 +72,32 @@ impl TokenBucket {
 
     pub async fn acquire(&self) {
         self.inner.acquire(()).await;
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use std::time::Instant;
+
+    use tokio::time::timeout;
+
+    use super::*;
+
+    #[tokio::test]
+    async fn exhaust() {
+        const TOKENS: usize = 5;
+        const PERIOD: Duration = Duration::from_secs(1);
+        const TIMEOUT: Duration = PERIOD.checked_mul(5).unwrap();
+
+        timeout(TIMEOUT, async {
+            let b = TokenBucket::new(PERIOD, TOKENS);
+            let start = Instant::now();
+            for _ in 0..TOKENS + 2 {
+                b.acquire().await;
+            }
+            assert!(start.elapsed() > PERIOD);
+        })
+        .await
+        .unwrap();
     }
 }

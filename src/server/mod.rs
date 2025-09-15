@@ -9,7 +9,7 @@ use std::fmt::Debug;
 use std::io::{self, Error};
 use std::net::{IpAddr, Ipv6Addr, SocketAddr};
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock};
 use std::time::Duration;
 
 use flexi_logger::{
@@ -52,6 +52,21 @@ const ERR_BAD_REQUEST: &str = "59 Bad request";
 const ERR_NOT_FOUND: &str = "51 Not found";
 const ERR_TIMED_OUT: &str = "59 Bad request; too slow";
 
+const TAG_RE: &str = r"\[\[([^\[\]]+)\]\]";
+const IMG_RE: &str = r"^=> ([^: ]+\.(gif|jpg|png|asc|pdf)) (.*)$";
+const EXT_RE: &str = r"^(.*)\.([^\.]+)$";
+
+macro_rules! re {
+    ($name:ident, $re:expr) => {
+        static $name: LazyLock<Regex> =
+            LazyLock::new(|| Regex::new($re).unwrap());
+    };
+}
+
+re!(TAG, TAG_RE);
+re!(IMG, IMG_RE);
+re!(EXT, EXT_RE);
+
 pub trait Vhost {
     fn name(&self) -> &str;
     fn root(&self) -> &PathBuf;
@@ -87,9 +102,6 @@ pub struct NsCtx<V> {
     port: u16,
     vhosts: HashMap<String, V>,
     timeout: Duration,
-    tag_re: Regex,
-    img_re: Regex,
-    ext_re: Regex,
     ip_limit: MultiTokenBucket<Ipv6Addr>,
     global_limit: TokenBucket,
     apps: HashMap<String, Box<dyn Application + Send + Sync>>,
@@ -111,10 +123,6 @@ where
             port,
             vhosts: HashMap::new(),
             timeout,
-            tag_re: Regex::new(r"\[\[([^\[\]]+)\]\]").unwrap(),
-            img_re: Regex::new(r"^=> ([^: ]+\.(gif|jpg|png|asc|pdf)) (.*)$")
-                .unwrap(),
-            ext_re: Regex::new(r"^(.*)\.([^\.]+)$").unwrap(),
             ip_limit: MultiTokenBucket::new(IP_RATE_LIMIT, 1),
             global_limit: TokenBucket::new(GLOBAL_RATE_LIMIT, 1),
             apps: HashMap::new(),
@@ -421,7 +429,7 @@ where
     async fn resolve_image(
         &self, vhost: &V, path: &Path, file: &str,
     ) -> io::Result<String> {
-        let small = if let Some(m) = self.ext_re.captures(file) {
+        let small = if let Some(m) = EXT.captures(file) {
             let mut file = m[1].to_owned();
             file.push_str("-small");
             file.push('.');
@@ -454,7 +462,7 @@ where
         let mut sent = 0;
 
         while let Some(mut ln) = lines.next_line().await? {
-            while let Some(m) = self.tag_re.find(&ln) {
+            while let Some(m) = TAG.find(&ln) {
                 let key = &ln[m.range()];
                 let key = &key[2..key.len() - 2];
                 if let Some(val) = data.get(key) {
@@ -463,7 +471,7 @@ where
                     ln.replace_range(m.range(), GPP_KEY_ERROR);
                 }
             }
-            if let Some(m) = self.img_re.captures(&ln) {
+            if let Some(m) = IMG.captures(&ln) {
                 let img = self.resolve_image(vhost, path, &m[1]).await?;
                 let sz = Self::get_size(vhost, path, &img).await;
                 ln = format!("=> {} {}{}", &img, &m[3], sz);

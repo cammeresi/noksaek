@@ -6,6 +6,11 @@ default-members = ["."]
 name = "noksaek"
 version = "0.1.0"
 edition = "2024"
+authors = ["Sidney Cammeresi <sac@cheesecake.org>"]
+license = "BSD-3-Clause"
+readme = "README"
+description = "Simple server for the Gemini protocol"
+repository = "https://github.com/cammeresi/noksaek.git"
 
 [[bin]]
 name = "noksaek"

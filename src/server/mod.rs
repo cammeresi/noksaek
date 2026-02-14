@@ -18,11 +18,11 @@ use flexi_logger::{
 };
 use handlebars::Handlebars;
 use regex::Regex;
+use rustls::pki_types::pem::PemObject;
 use rustls::{
     pki_types::{CertificateDer, PrivateKeyDer, PrivateSec1KeyDer},
     server::ServerConfig,
 };
-use rustls_pemfile::{certs, ec_private_keys};
 use tokio::fs::{self, File};
 use tokio::io::{
     AsyncBufReadExt, AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt,
@@ -693,10 +693,6 @@ where
     }
 }
 
-fn read_file(p: PathBuf) -> io::Result<io::BufReader<std::fs::File>> {
-    Ok(io::BufReader::new(std::fs::File::open(p)?))
-}
-
 fn add_host(
     ctx: &mut NsCtx<VhostCtx>, host: String,
     certs: Vec<CertificateDer<'static>>, key: PrivateSec1KeyDer<'static>,
@@ -731,14 +727,14 @@ fn init_walk(ctx: &mut NsCtx<VhostCtx>, root: &str) -> io::Result<()> {
         let host = f.file_name().into_string().unwrap();
         let mut path = [root, CERTS_DIR, &host, CERT];
         let p = path.iter().collect::<PathBuf>();
-        let c = certs(&mut read_file(p)?)
+        let c = CertificateDer::pem_file_iter(&p)
+            .map_err(|e| Error::new(ErrorKind::InvalidData, e))?
             .map(|x| x.unwrap())
             .collect::<Vec<_>>();
         path[3] = KEY;
         let p = path.iter().collect::<PathBuf>();
-        let k = ec_private_keys(&mut read_file(p)?)
-            .next()
-            .expect("no key")?;
+        let k = PrivateSec1KeyDer::from_pem_file(&p)
+            .map_err(|e| Error::new(ErrorKind::InvalidData, e))?;
 
         let content = [&host];
         add_host(ctx, host.clone(), c, k, content.iter().collect());

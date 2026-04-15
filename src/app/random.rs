@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::io::Error;
 
-use rand::Rng;
+use rand::RngExt;
 use tokio::io::AsyncWriteExt;
 
 use super::*;
